@@ -1,0 +1,16 @@
+{
+	"folders": [
+		{
+			"path": "../../Testing"
+		},
+		{
+			"name": "SecondTestRun",
+			"path": "../../SecondTestRun"
+		},
+		{
+			"name": "3rdRun",
+			"path": ".."
+		}
+	],
+	"settings": {}
+}
