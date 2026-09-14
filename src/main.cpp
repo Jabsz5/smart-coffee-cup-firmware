@@ -27,142 +27,135 @@ void setup() {
 
  Serial.println("Hello World! Starting ESP32 BLE + OLED test...");
 
- // Initialization
- if (OLEDinit() != EXT_CODE_SUCCESS){
- showOLEDMessage("OLED Init failed! err code: ERR_CODE_OLED_INIT_FAILED");
- Serial.println("Restarting ESP32...");
- Serial.flush();
- ESP.restart();
- }
+ // =======================================================
+// Hardware initialization
+// =======================================================
 
-  if (bootupScreen() != EXT_CODE_SUCCESS){
- showOLEDMessage("Bootup screen failed! err code: ERR_CODE_BOOTUP_SCREEN_FAIL");
- Serial.println("Restarting ESP32...");
- Serial.flush();
- ESP.restart();
- }
+// The display cannot report its own initialization failure,
+// so this particular error is printed only to Serial.
+if (OLEDinit() != EXT_CODE_SUCCESS) {
+    Serial.println("OLED init failed!");
+    Serial.printf("Error code: 0x%04X\n", ERR_CODE_OLED_INIT_FAILED);
+    Serial.println("Restarting ESP32...");
+    Serial.flush();
 
- if (temperatureSensorInit() != EXT_CODE_SUCCESS){
-  showOLEDMessage("Temperature sensors failed to init! err code: ERR_CODE_TEMP_SENSOR_INIT_FAIL");
-  Serial.println("Restarting ESP32...");
-  Serial.flush();
-  ESP.restart();
- }
+    // ESP.restart();
+}
 
- if (buzzerinit() != EXT_CODE_SUCCESS){
-  showOLEDMessage("Buzzer init failed! err code: ERR_CODE_BUZZER_INIT_FAIL");
-  Serial.println("Restarting ESP32...");
-  Serial.flush();
-  ESP.restart();
- }
- 
- if (bluetoothinit() != EXT_CODE_SUCCESS){
-  showOLEDMessage("Bluetooth init failed! err code: ERR_CODE_BLUETOOTH_INIT_FAILED");
-  Serial.println("Restarting ESP32...");
-  Serial.flush();
-  ESP.restart();
- }
+if (bootupScreen() != EXT_CODE_SUCCESS) {
+    printError("Bootup screen failed!", ERR_CODE_BOOTUP_SCREEN_FAILED);
+    // ESP.restart();
+}
 
- // hardare init done... software init time
-  oledTextQueue = xQueueCreate(5, sizeof(OledTextMessage));
+if (temperatureSensorInit() != EXT_CODE_SUCCESS) {
+    printError("Temperature sensors failed to initialize!", ERR_CODE_TEMP_SENSOR_INIT_FAILED);
+    // ESP.restart();
+}
 
- if (oledTextQueue == NULL){
-  Serial.println("Failed to create OLED text queue. err code: ERR_CODE_OLED_QUEUE_CREATION_FAILED");
-  Serial.println("Restarting ESP32...");
-  Serial.flush();
-  ESP.restart();
- }
+if (buzzerGPIOinit() != EXT_CODE_SUCCESS) {
+    printError("Buzzer GPIO initialization failed!", ERR_CODE_BUZZER_INIT_FAIL);
+    // ESP.restart();
+}
 
- temperatureCommandQueue = xQueueCreate(1, sizeof(uint8_t));
-
- if (temperatureCommandQueue == nullptr) {
-   Serial.println("Failed to create temperature command queue. err code: ERR_CODE_TEMP_COMMAND_QUEUE_CREATION_FAILED");
-   Serial.println("Restarting ESP32...");
-   Serial.flush();
-   ESP.restart();
- }
-
- capacityCommandQueue = xQueueCreate(1, sizeof(uint8_t));
-
- if (capacityCommandQueue == nullptr){
-   Serial.println("Failed to create capacity commmand queue. err code: ERR_CODE_CAPACITY_COMMAND_QUEUE_CREATION_FAILED");
-   Serial.println("Restarting ESP32...");
-   Serial.flush();
-   ESP.restart();
- }
+if (bluetoothinit() != EXT_CODE_SUCCESS) {
+    printError("Bluetooth initialization failed!", ERR_CODE_BLUETOOTH_INIT_FAILED);
+    // ESP.restart();
+}
 
 
- BaseType_t OLEDtaskResult = xTaskCreatePinnedToCore(
-                           oledTextTask,
-                           "OLED Text Task",
-                           4096,
-                           nullptr,
-                           1, // priority
-                           nullptr,
-                           CORE_0
-                           );
+// =======================================================
+// Software initialization
+// =======================================================
+
+oledTextQueue = xQueueCreate(5,sizeof(OledTextMessage));
+
+if (oledTextQueue == nullptr) {
+    printError("Failed to create OLED text queue.", ERR_CODE_OLED_QUEUE_CREATION_FAILED);
+    // ESP.restart();
+}
 
 
- if (OLEDtaskResult != pdPASS) {
-   Serial.println("Failed to create OLED task. err code: ERR_CODE_OLED_TASK_CREATION_FAILED");
-   Serial.println("Restarting ESP32...");
-   Serial.flush();
-   ESP.restart();
-   }
+temperatureCommandQueue = xQueueCreate(1, sizeof(uint8_t));
+
+if (temperatureCommandQueue == nullptr) {
+    printError("Failed to create temperature command queue.", ERR_CODE_TEMPERATURE_COMMAND_QUEUE_CREATION_FAILED);
+    // ESP.restart();
+}
 
 
- BaseType_t TemperaturetaskResult = xTaskCreatePinnedToCore(
-                             temperatureTask,
-                             "Temperature Task",
-                             16384,
-                             nullptr,
-                             1, // priorityj
-                             nullptr,
-                             CORE_0
-                             );
+capacityCommandQueue = xQueueCreate(1, sizeof(uint8_t));
+
+if (capacityCommandQueue == nullptr) {
+    printError("Failed to create capacity command queue.", ERR_CODE_CAPACITY_QUEUE_CREATION_FAILED);
+    // ESP.restart();
+}
 
 
- if (TemperaturetaskResult != pdPASS) {
-      Serial.println("Failed to create Temperature task. err code: ERR_CODE_TEMP_TASK_CREATION_FAILED");
-      Serial.println("Restarting ESP32...");
-      Serial.flush();
-      ESP.restart();
-   }
+// =======================================================
+// FreeRTOS task creation
+// =======================================================
+
+BaseType_t OLEDtaskResult = xTaskCreatePinnedToCore(
+    oledTextTask,
+    "OLED Text Task",
+    4096,
+    nullptr,
+    1,
+    nullptr,
+    CORE_0
+);
+
+if (OLEDtaskResult != pdPASS) {
+    printError("Failed to create OLED task.", ERR_CODE_OLED_TASK_CREATION_FAILED);
+    // ESP.restart();
+}
 
 
- BaseType_t CapacityTaskResult = xTaskCreatePinnedToCore(
-                             capacityTask,
-                             "Capacity task",
-                             4096,
-                             nullptr,
-                             1,
-                             nullptr,
-                             CORE_0
- );
+BaseType_t TemperaturetaskResult = xTaskCreatePinnedToCore(
+    temperatureTask,
+    "Temperature Task",
+    16384,
+    nullptr,
+    1,
+    nullptr,
+    CORE_0
+);
+
+if (TemperaturetaskResult != pdPASS) {
+    printError("Failed to create temperature task.", ERR_CODE_TEMPERATURE_TASK_CREATION_FAILED);
+    // ESP.restart();
+}
 
 
- if (CapacityTaskResult != pdPASS){
-   Serial.println("Failed to create capacity task. err code: ERR_CODE_CAPACITY_TASK_CREATION_FAILED");
-   Serial.println("Restarting ESP32...");
-   Serial.flush();
-   ESP.restart();
- }
+BaseType_t CapacityTaskResult = xTaskCreatePinnedToCore(
+    capacityTask,
+    "Capacity Task",
+    4096,
+    nullptr,
+    1,
+    nullptr,
+    CORE_0
+);
 
- BaseType_t alarmTaskResult = xTaskCreatePinnedToCore(
-                              alarmTask,
-                              "Alarm Task",
-                              2048,
-                              nullptr,
-                              1,
-                              &alarmTaskHandle,
-                              CORE_0
+if (CapacityTaskResult != pdPASS) {
+    printError("Failed to create capacity task.", ERR_CODE_CAPACITY_TASK_CREATION_FAILED);
+    // ESP.restart();
+}
+
+
+BaseType_t alarmTaskResult = xTaskCreatePinnedToCore(
+    alarmTask,
+    "Alarm Task",
+    2048,
+    nullptr,
+    1,
+    &alarmTaskHandle,
+    CORE_0
 );
 
 if (alarmTaskResult != pdPASS) {
-    Serial.println("Failed to create alarm task. err code: ERR_CODE_ALARM_TASK_CREATION_FAILED");
-    Serial.println("Restarting ESP32...");
-    Serial.flush();
-    ESP.restart();
+    printError("Failed to create alarm task.", ERR_CODE_ALARM_TASK_CREATION_FAILED);
+    // ESP.restart();
 }
 
   // TO-DO: Also initialize capacity sensors here

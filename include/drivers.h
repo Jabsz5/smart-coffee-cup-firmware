@@ -1,7 +1,8 @@
 #pragma once
 
 #include <Arduino.h>
-#include <Adafruit_SH110X.h>
+#include <Adafruit_ST7789.h>
+
 #include <BLEDevice.h>
 #include <BLEServer.h>
 
@@ -44,7 +45,7 @@ public:
 };
 
 // Driver objects defined in drivers.cpp
-extern Adafruit_SH1107 display;
+extern Adafruit_ST7789 display;
 extern OledTextCallbacks oledTextCallbacks;
 extern TemperatureCallbacks temperatureCallbackHandler;
 extern CapacityCallbacks capacityCallbackHandler;
@@ -73,6 +74,7 @@ int OLEDinit();
 int bootupScreen();
 void displaySettingStartup();
 void showOLEDMessage(const char* message);
+void printError(const char* errorMessage, uint16_t errorCode);
 
 // Bluetooth driver function
 int bluetoothinit();
@@ -81,7 +83,7 @@ int bluetoothinit();
 int temperatureSensorInit();
 
 // buzzer driver function
-int buzzerinit();
+int buzzerGPIOinit();
 void soundAlarm();
 
 // FreeRTOS task functions

@@ -13,8 +13,23 @@
 #include <string>
 #include "smartCupConfig.h"
 #include "drivers.h"
+#include <Adafruit_ST7789.h>
+#include <SPI.h>
 
-Adafruit_SH1107 display = Adafruit_SH1107(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
+
+// Display pins
+#define TFT_CS    7
+#define TFT_DC    6
+#define TFT_RST   15
+#define TFT_MOSI  13
+#define TFT_SCLK  12
+
+// Custom SPI bus
+SPIClass displaySPI(FSPI);
+
+// ST7789 display
+Adafruit_ST7789 display(&displaySPI, TFT_CS, TFT_DC, TFT_RST);
+
 MyServerCallbacks serverCallbacks;
 OledTextCallbacks oledTextCallbacks;
 TemperatureCallbacks temperatureCallbackHandler;
@@ -77,47 +92,68 @@ void soundAlarm(){
  noTone(BUZZER_PIN);
 }
 
-int buzzerinit(){
- pinMode(BUZZER_PIN, OUTPUT);
- digitalWrite(BUZZER_PIN, LOW);
+int buzzerGPIOinit() {
+    if (!GPIO_IS_VALID_OUTPUT_GPIO(BUZZER_PIN)) {
+        return ERR_CODE_BUZZER_INIT_FAIL;
+    }
+	pinMode(BUZZER_PIN, OUTPUT);
+	digitalWrite(BUZZER_PIN, HIGH);
 
- return EXT_CODE_SUCCESS;
+    return EXT_CODE_SUCCESS;
+}
+
+void printError(const char* message, uint16_t errorCode) {
+    // Print to Serial
+    Serial.println(message);
+    Serial.printf("Error code: 0x%04X\n", errorCode);
+    Serial.println("Restarting ESP32...");
+
+    // Print to ST7789
+    display.setTextColor(ST77XX_WHITE, ST77XX_BLACK);
+    display.println(message);
+
+    display.setTextColor(ST77XX_RED, ST77XX_BLACK);
+    display.printf("Error code: 0x%04X\n", errorCode);
+
+    display.setTextColor(ST77XX_WHITE, ST77XX_BLACK);
+    //display.println("Restarting ESP32...");
+
+    Serial.flush();
 }
 
 // default boot up screen
 int bootupScreen(){
   displaySettingStartup();
   display.println("Senior Design 2026\nGroup 5\nSmart Cofee Cup\nBooting up...\n");
-  display.display();
   return EXT_CODE_SUCCESS;
 }
 
-void displaySettingStartup(){
-	// free default display memory
-  	display.clearDisplay();
-	// 1 is 6x8 pixels. So 48 pixels in total for size 1
-	display.setTextSize(1);
-	display.setTextColor(SH110X_WHITE);
-	display.setCursor(0, 0);
-};
+void displaySettingStartup() {
+    display.fillScreen(ST77XX_BLACK);
+
+	// Use size 1 for initiatlization messages
+	// Use size 2 for actual messages to be displayed on the OLED screen
+    display.setTextSize(1);
+    display.setTextColor(ST77XX_WHITE, ST77XX_BLACK);
+    display.setCursor(0, 0);
+    display.setTextWrap(false);
+}
 
 void showOLEDMessage(const char* message) {
   display.println("\n");
   display.println(message);
-  display.display();
 }
 
 int OLEDinit() {
-  Wire.begin(I2C_SDA, I2C_SCL);
+  Serial.println("Starting ST7789...");
 
-  if (!display.begin(0x3C, true)) {
-	Serial.println("OLED not found at 0x3C.");
-	return ERR_CODE_OLED_INIT_FAILED;
-	//while (true) {
-	  //delay(10);
-	//}
-  }
-  return EXT_CODE_SUCCESS;
+	// SCLK, MISO unused, MOSI, CS
+    displaySPI.begin(TFT_SCLK, -1, TFT_MOSI, TFT_CS);
+
+    display.init(240, 320);
+    uint8_t rotation = 2; 
+    display.setRotation(rotation);  
+  	return EXT_CODE_SUCCESS;
 }
 
 void oledTextTask(void *parameter){
@@ -129,6 +165,7 @@ void oledTextTask(void *parameter){
 		if (xQueueReceive(oledTextQueue, &message, portMAX_DELAY) == pdTRUE){
 			Serial.printf("\r\nProcessing OLED message on Core %d: %s\r\n", xPortGetCoreID(), message.text);
 			displaySettingStartup();
+			display.setTextSize(2);
 			showOLEDMessage(message.text);
 		}
 	}
@@ -282,7 +319,7 @@ void MyServerCallbacks::onDisconnect(BLEServer* server) {
     BLEDevice::startAdvertising();
     Serial.println("BLE advertising restarted.");
 
-    showOLEDMessage("Waiting for\nconnection...");
+    showOLEDMessage("Waiting for connection...");
 }
 
 void OledTextCallbacks::onWrite(BLECharacteristic* characteristic) {
@@ -408,7 +445,7 @@ int bluetoothinit(){
 	advertising->start();
 
 	Serial.println("BLE advertising started.");
-	showOLEDMessage("BLE advertising\nstarted.");
+	showOLEDMessage("BLE advertising started.\nWaiting for connection...");
 
 	return EXT_CODE_SUCCESS;
 }
