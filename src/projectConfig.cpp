@@ -9,6 +9,7 @@ BLECharacteristic* oledTextCharacteristic = nullptr;
 BLECharacteristic* heatingPadCharacteristic = nullptr;
 BLECharacteristic* temperatureCharacteristic = nullptr;
 BLECharacteristic* capacityCharacteristic = nullptr;
+BLECharacteristic* photoCharacteristic = nullptr;
 
 QueueHandle_t oledTextQueue = nullptr;
 QueueHandle_t temperatureCommandQueue = nullptr;
