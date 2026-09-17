@@ -65,6 +65,9 @@ constexpr const char TEMPERATURE_CHAR_UUID[] =
 constexpr const char CAPACITY_CHAR_UUID[] =
     "abcd1234-5678-90ab-cdef-1234567890ae";
 
+constexpr const char PHOTO_UPLOAD_UUID[] = 
+    "abcd1234-5678-90ab-cdef-1234567890af";
+
 // ============================================================
 // Status codes
 // ============================================================

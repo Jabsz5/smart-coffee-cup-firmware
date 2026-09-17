@@ -44,6 +44,11 @@ public:
     void onWrite(BLECharacteristic* characteristic) override;
 };
 
+class PhotoCallbacks : public BLECharacteristicCallbacks {
+public:
+    void onWrite(BLECharacteristic* characteristic) override;
+};
+
 // Driver objects defined in drivers.cpp
 extern Adafruit_ST7789 display;
 extern OledTextCallbacks oledTextCallbacks;
@@ -64,6 +69,7 @@ extern BLECharacteristic* oledTextCharacteristic;
 extern BLECharacteristic* heatingPadCharacteristic;
 extern BLECharacteristic* temperatureCharacteristic;
 extern BLECharacteristic* capacityCharacteristic;
+extern BLECharacteristic* photoCharacteristic;
 
 // Shared BLE and temperature state
 extern bool deviceConnected;

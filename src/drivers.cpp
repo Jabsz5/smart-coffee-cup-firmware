@@ -34,6 +34,7 @@ MyServerCallbacks serverCallbacks;
 OledTextCallbacks oledTextCallbacks;
 TemperatureCallbacks temperatureCallbackHandler;
 CapacityCallbacks capacityCallbackHandler;
+PhotoCallbacks photoCallbackHandler;
 OneWire activeOneWire(ACTIVE_SENSOR_PIN);
 OneWire ambientOneWire(AMBIENT_SENSOR_PIN);
 
@@ -408,6 +409,30 @@ void CapacityCallbacks::onWrite(BLECharacteristic* characteristic) {
 	}
 }
 
+// store received photo bytes to buffer. Multiple onWrite() calls will occur for these stream of bytes
+// The mobile app will process the image. Phone will decode PNG to RGB565 pixels
+std::vector<uint8_t> photoBuffer;
+void PhotoCallbacks::onWrite(BLECharacteristic* characteristic){
+    if (characteristic->getUUID().toString() != PHOTO_UPLOAD_UUID) {
+		return;
+	}
+
+    std::string value = characteristic->getValue();
+    if (value.empty()) {
+            return;
+        }
+
+    const uint8_t* data = reinterpret_cast<const uint8_t*>(value.data());
+
+
+    photoBuffer.insert(photoBuffer.end(), data, data + value.size());
+    Serial.printf("Received %d bytes. Total: %d bytes\n", value.size(), photoBuffer.size());
+
+    // TO-DO:
+    // Test with mobile app to see if I can atleast receive the data.
+    // Design tiny protocol between ESP32 and app to determine when image is finished
+}
+
 int bluetoothinit(){
 	Serial.println("Starting BLE...");
 	showOLEDMessage("Starting BLE...");
@@ -420,20 +445,19 @@ int bluetoothinit(){
 	BLEService* smartCupService = server->createService(SERVICE_UUID);
 
 	// Create characteristics
+    // recall that the properties are read from the CLIENT'S perspective (the mobile app)
 	oledTextCharacteristic = smartCupService->createCharacteristic(OLED_TEXT_CHAR_UUID, BLECharacteristic::PROPERTY_WRITE);
 	heatingPadCharacteristic = smartCupService->createCharacteristic(HEATING_PAD_CHAR_UUID, BLECharacteristic::PROPERTY_WRITE);
-	temperatureCharacteristic = smartCupService->createCharacteristic(TEMPERATURE_CHAR_UUID, BLECharacteristic::PROPERTY_READ | 
-																							BLECharacteristic::PROPERTY_NOTIFY |
-																							BLECharacteristic::PROPERTY_WRITE);
-	capacityCharacteristic = smartCupService->createCharacteristic(CAPACITY_CHAR_UUID, BLECharacteristic::PROPERTY_READ | 
-																					   BLECharacteristic::PROPERTY_NOTIFY | 
-																					   BLECharacteristic::PROPERTY_WRITE);
-
+	temperatureCharacteristic = smartCupService->createCharacteristic(TEMPERATURE_CHAR_UUID, BLECharacteristic::PROPERTY_READ | BLECharacteristic::PROPERTY_NOTIFY | BLECharacteristic::PROPERTY_WRITE);
+	capacityCharacteristic = smartCupService->createCharacteristic(CAPACITY_CHAR_UUID, BLECharacteristic::PROPERTY_READ | BLECharacteristic::PROPERTY_NOTIFY |  BLECharacteristic::PROPERTY_WRITE);
+    photoCharacteristic = smartCupService->createCharacteristic(PHOTO_UPLOAD_UUID, BLECharacteristic:: PROPERTY_WRITE);
+                                                                            
 	// Attach the callback that runs when the phone writes data
 	oledTextCharacteristic->setCallbacks((BLECharacteristicCallbacks*)&oledTextCallbacks);
 	///heatingPadCharacteristic->setCallbacks((BLECharacteristicCallbacks*)&heatingPadCallbacks);
 	temperatureCharacteristic->setCallbacks((BLECharacteristicCallbacks*)&temperatureCallbackHandler);
 	capacityCharacteristic->setCallbacks((BLECharacteristicCallbacks*)&capacityCallbackHandler);
+    photoCharacteristic->setCallbacks((BLECharacteristicCallbacks*)&photoCallbackHandler);
 
 	// Start the BLE service
 	smartCupService->start();
