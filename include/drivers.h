@@ -15,7 +15,7 @@
 #include <DallasTemperature.h>
 
 
-struct OledTextMessage {
+struct displayMessage_t {
     char text[OLED_TEXT_MAX_LENGTH];
 };
 
@@ -27,7 +27,7 @@ public:
 };
 
 // BLE OLED characteristic callback
-class OledTextCallbacks : public BLECharacteristicCallbacks {
+class DisplayCallbacks : public BLECharacteristicCallbacks {
 public:
     void onWrite(BLECharacteristic* characteristic) override;
 };
@@ -51,7 +51,7 @@ public:
 
 // Driver objects defined in drivers.cpp
 extern Adafruit_ST7789 display;
-extern OledTextCallbacks oledTextCallbacks;
+extern DisplayCallbacks displayCallbacks;
 extern TemperatureCallbacks temperatureCallbackHandler;
 extern CapacityCallbacks capacityCallbackHandler;
 extern OneWire activeOneWire;
@@ -60,7 +60,7 @@ extern DallasTemperature activeSensor;
 extern DallasTemperature ambientSensor;
 
 // FreeRTOS queues defined in projectConfig.cpp
-extern QueueHandle_t oledTextQueue;
+extern QueueHandle_t displayQueue;
 extern QueueHandle_t temperatureCommandQueue;
 extern QueueHandle_t capacityCommandQueue;
 
@@ -79,7 +79,7 @@ extern uint8_t temperatureControlValue;
 int OLEDinit();
 int bootupScreen();
 void displaySettingStartup();
-void showOLEDMessage(const char* message);
+void displayMessage(const char* message);
 void printError(const char* errorMessage, uint16_t errorCode);
 
 // Bluetooth driver function
@@ -92,8 +92,16 @@ int temperatureSensorInit();
 int buzzerGPIOinit();
 void soundAlarm();
 
+// temperature plates driver functions
+void plateTemperatureSensorInit();
+
+float readPlateTemperature();
+float getPlateTemperatureF();
+
+void plateTemperatureTask(void* parameters);
+
 // FreeRTOS task functions
-void oledTextTask(void* parameter);
+void displayTask(void* parameter);
 void temperatureTask(void* parameter);
 void capacityTask(void* parameter);
 void alarmTask(void* parameter);

@@ -46,6 +46,23 @@ constexpr uint32_t ALARM_DURATION_MS = 20000;
 extern TaskHandle_t alarmTaskHandle;
 extern bool alarmArmed;
 
+// --------------------------------------------------
+// Plate thermistor
+// --------------------------------------------------
+constexpr uint8_t THERMISTOR_PIN = 1;
+
+constexpr float SERIES_RESISTOR = 10000.0f;
+constexpr float THERMISTOR_NOMINAL = 10000.0f;
+constexpr float TEMP_NOMINAL_C = 25.0f;
+constexpr float THERMISTOR_BETA = 3950.0f;
+constexpr float ADC_MAX_VALUE = 4095.0f;
+
+// Carried over from the test program.
+// This should eventually be recalibrated against a trusted thermometer.
+constexpr float PLATE_TEMP_CORRECTION_F = 138.5f;
+
+constexpr uint32_t PLATE_UPDATE_INTERVAL_MS = 50;
+
 // ============================================================
 // BLE UUIDs
 // ============================================================
@@ -76,9 +93,9 @@ constexpr int EXT_CODE_SUCCESS = 0;
 constexpr int ERR_CODE_OLED_INIT_FAILED = 1;
 constexpr int ERR_CODE_BOOTUP_SCREEN_FAILED = 2;
 constexpr int ERR_CODE_BLUETOOTH_INIT_FAILED = 3;
-constexpr int ERR_CODE_OLED_QUEUE_CREATION_FAILED = 4;
+constexpr int ERR_CODE_DISPLAY_QUEUE_CREATION_FAILED = 4;
 constexpr int ERR_CODE_TEMPERATURE_COMMAND_QUEUE_CREATION_FAILED = 5;
-constexpr int ERR_CODE_OLED_TASK_CREATION_FAILED = 6;
+constexpr int ERR_CODE_DISPLAY_TASK_CREATION_FAILED = 6;
 constexpr int ERR_CODE_TEMPERATURE_TASK_CREATION_FAILED = 7;
 constexpr int ERR_CODE_TEMPERATURE_COMMAND_RECEIVE_FAILED = 8;
 constexpr int ERR_CODE_CAPACITY_COMMAND_RECEIVE_FAILED = 9;
@@ -114,7 +131,7 @@ extern uint8_t capacityControlValue;
 // BLE characteristic pointers
 // ============================================================
 
-extern BLECharacteristic* oledTextCharacteristic;
+extern BLECharacteristic* displayCharacteristic;
 extern BLECharacteristic* heatingPadCharacteristic;
 extern BLECharacteristic* temperatureCharacteristic;
 extern BLECharacteristic* capacityCharacteristic;

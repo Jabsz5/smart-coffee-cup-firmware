@@ -15,7 +15,8 @@
 #include "drivers.h"
 #include <Adafruit_ST7789.h>
 #include <SPI.h>
-
+#include "photoProtocol.h"
+#include <cmath>
 
 // Display pins
 #define TFT_CS    7
@@ -30,8 +31,133 @@ SPIClass displaySPI(FSPI);
 // ST7789 display
 Adafruit_ST7789 display(&displaySPI, TFT_CS, TFT_DC, TFT_RST);
 
+// Going to make display have multiple modes.
+
+enum class DisplayMode : uint8_t {
+    SensorDashboard,
+    Text,
+    Photo,
+    Drawing
+};
+
+extern volatile DisplayMode currentDisplayMode;
+
+volatile DisplayMode currentDisplayMode = DisplayMode::SensorDashboard;
+
+void drawSensorDisplayLayout() {
+    display.fillScreen(ST77XX_BLACK);
+    display.setTextWrap(false);
+
+    display.setTextSize(3);
+    display.setTextColor(ST77XX_CYAN);
+    display.setCursor(25, 15);
+    display.print("SMART CUP");
+
+    display.drawFastHLine(
+        10,
+        50,
+        display.width() - 20,
+        ST77XX_WHITE
+    );
+
+    display.setTextSize(2);
+
+    display.setTextColor(ST77XX_YELLOW);
+    display.setCursor(10, 75);
+    display.print("Plate:");
+
+    display.setTextColor(ST77XX_GREEN);
+    display.setCursor(10, 120);
+    display.print("Liquid:");
+
+    display.setTextColor(ST77XX_CYAN);
+    display.setCursor(10, 165);
+    display.print("Ambient:");
+
+    display.setTextColor(ST77XX_WHITE);
+    display.setCursor(10, 210);
+    display.print("Weight:");
+}
+
+void drawSensorValue(
+    int16_t y,
+    uint16_t color,
+    float value,
+    const char* unit
+) {
+    /*
+     * Clear only the region containing the old number.
+     * Do not clear the entire display.
+     */
+    display.fillRect(
+        115,
+        y,
+        120,
+        24,
+        ST77XX_BLACK
+    );
+
+    display.setTextSize(2);
+    display.setTextColor(color);
+    display.setCursor(115, y);
+
+    if (isfinite(value)) {
+        display.print(value, 1);
+        display.print(" ");
+        display.print(unit);
+    } else {
+        display.print("---");
+    }
+}
+
+// Incorrect functions used for just testing right now. Will be replaced by their respective functions that read the actual values from the sensors.
+void updateSensorDisplay() {
+    const float plateTemp =
+        getPlateTemperatureF();
+
+    const float liquidTemp =
+        getPlateTemperatureF();
+
+    const float ambientTemp =
+        getPlateTemperatureF();
+
+    const float weight =
+        getPlateTemperatureF();
+
+    drawSensorValue(
+        75,
+        ST77XX_YELLOW,
+        plateTemp,
+        "F"
+    );
+
+    drawSensorValue(
+        120,
+        ST77XX_GREEN,
+        liquidTemp,
+        "F"
+    );
+
+    drawSensorValue(
+        165,
+        ST77XX_CYAN,
+        ambientTemp,
+        "F"
+    );
+
+    drawSensorValue(
+        210,
+        ST77XX_WHITE,
+        weight,
+        "g"
+    );
+}
+
+
+
+
 MyServerCallbacks serverCallbacks;
-OledTextCallbacks oledTextCallbacks;
+DisplayCallbacks displayCallbacks;
 TemperatureCallbacks temperatureCallbackHandler;
 CapacityCallbacks capacityCallbackHandler;
 PhotoCallbacks photoCallbackHandler;
@@ -69,10 +195,10 @@ int temperatureSensorInit(){
   snprintf(activeSensorMessage, sizeof(activeSensorMessage), "Active sensors found: %u", static_cast<unsigned int>(activeSensorCount));
   snprintf(ambientSensorMessage, sizeof(ambientSensorMessage), "Ambient sensors found: %u", static_cast<unsigned int>(ambientSensorCount));
 
-  showOLEDMessage(activeSensorMessage);
+  displayMessage(activeSensorMessage);
   Serial.println(activeSensorMessage);
 
-  showOLEDMessage(ambientSensorMessage);
+  displayMessage(ambientSensorMessage);
   Serial.println(ambientSensorMessage);
 
   if (activeSensorCount == 0 || ambientSensorCount == 0){
@@ -81,6 +207,110 @@ int temperatureSensorInit(){
   }
 
   return EXT_CODE_SUCCESS;
+}
+
+// Latest valid plate-temperature reading.
+// NAN means that no valid reading is currently available.
+static float plateTempF = NAN;
+
+// Protects plateTempF because one FreeRTOS task writes it while
+// other tasks may read it.
+static portMUX_TYPE plateTemperatureMux =
+    portMUX_INITIALIZER_UNLOCKED;
+
+
+void plateTemperatureSensorInit() {
+    pinMode(THERMISTOR_PIN, INPUT);
+
+    // ESP32 ADC range: 0–4095.
+    analogReadResolution(12);
+
+    // Increases the measurable input-voltage range.
+    analogSetPinAttenuation(
+        THERMISTOR_PIN,
+        ADC_11db
+    );
+
+    Serial.printf(
+        "Plate thermistor initialized on GPIO %u\n",
+        THERMISTOR_PIN
+    );
+}
+
+float readPlateTemperature() {
+    uint32_t total = 0;
+
+    // Average eight readings to reduce ADC noise.
+    for (uint8_t sample = 0; sample < 8; sample++) {
+        total += analogRead(THERMISTOR_PIN);
+    }
+
+    const float adc =
+        static_cast<float>(total) / 8.0f;
+
+    // Zero or full-scale normally indicates invalid wiring,
+    // a short circuit, or a disconnected thermistor.
+    if (adc <= 0.0f || adc >= ADC_MAX_VALUE) {
+        return NAN;
+    }
+
+    const float resistance =
+        SERIES_RESISTOR *
+        adc /
+        (ADC_MAX_VALUE - adc);
+
+    if (
+        resistance <= 0.0f ||
+        !std::isfinite(resistance)
+    ) {
+        return NAN;
+    }
+
+    // Beta-parameter thermistor equation.
+    const float inverseTemperatureK =
+        (1.0f / (TEMP_NOMINAL_C + 273.15f)) +
+        (1.0f / THERMISTOR_BETA) *
+            std::log(
+                resistance /
+                THERMISTOR_NOMINAL
+            );
+
+    if (
+        inverseTemperatureK <= 0.0f ||
+        !std::isfinite(inverseTemperatureK)
+    ) {
+        return NAN;
+    }
+
+    const float temperatureK =
+        1.0f / inverseTemperatureK;
+
+    const float temperatureC =
+        temperatureK - 273.15f;
+
+    const float temperatureF =
+        temperatureC * 9.0f / 5.0f + 32.0f;
+
+    const float correctedTemperatureF =
+        temperatureF +
+        PLATE_TEMP_CORRECTION_F;
+
+    if (!std::isfinite(correctedTemperatureF)) {
+        return NAN;
+    }
+
+    return correctedTemperatureF;
+}
+
+
+float getPlateTemperatureF() {
+    float temperatureSnapshot;
+
+    portENTER_CRITICAL(&plateTemperatureMux);
+    temperatureSnapshot = plateTempF;
+    portEXIT_CRITICAL(&plateTemperatureMux);
+
+    return temperatureSnapshot;
 }
 
 void soundAlarm(){
@@ -140,7 +370,7 @@ void displaySettingStartup() {
     display.setTextWrap(false);
 }
 
-void showOLEDMessage(const char* message) {
+void displayMessage(const char* message) {
   display.println("\n");
   display.println(message);
 }
@@ -157,21 +387,81 @@ int OLEDinit() {
   	return EXT_CODE_SUCCESS;
 }
 
-void oledTextTask(void *parameter){
-	OledTextMessage message;
+void displayTask(void* parameter) {
+    constexpr TickType_t DISPLAY_INTERVAL =
+        pdMS_TO_TICKS(100);
 
-	Serial.printf("OLED text task started on Core %d\n\r", xPortGetCoreID());
+    TickType_t lastWakeTime =
+        xTaskGetTickCount();
 
-	while(1){
-		if (xQueueReceive(oledTextQueue, &message, portMAX_DELAY) == pdTRUE){
-			Serial.printf("\r\nProcessing OLED message on Core %d: %s\r\n", xPortGetCoreID(), message.text);
-			displaySettingStartup();
-			display.setTextSize(2);
-			showOLEDMessage(message.text);
-		}
-	}
+    Serial.printf(
+        "Display task started on Core %d\n",
+        xPortGetCoreID()
+    );
+
+    // The dashboard is the default display mode.
+    currentDisplayMode =
+        DisplayMode::SensorDashboard;
+
+    drawSensorDisplayLayout();
+    updateSensorDisplay();
+
+    while (true) {
+        if (
+            currentDisplayMode ==
+            DisplayMode::SensorDashboard
+        ) {
+            updateSensorDisplay();
+        }
+
+        vTaskDelayUntil(
+            &lastWakeTime,
+            DISPLAY_INTERVAL
+        );
+    }
 }
 
+void plateTemperatureTask(void* parameters) {
+    // Initialize the first wake time once.
+    TickType_t lastWakeTime =
+        xTaskGetTickCount();
+
+    Serial.println(
+        "Plate temperature task started"
+    );
+
+    while (true) {
+        const float newPlateTempF =
+            readPlateTemperature();
+
+        portENTER_CRITICAL(&plateTemperatureMux);
+        plateTempF = newPlateTempF;
+        portEXIT_CRITICAL(&plateTemperatureMux);
+
+        if (std::isfinite(newPlateTempF)) {
+            Serial.printf(
+                "Plate temperature: %.1f F\n",
+                newPlateTempF
+            );
+        } else {
+            Serial.println(
+                "Plate temperature unavailable"
+            );
+        }
+
+        /*
+         * vTaskDelayUntil produces a stable 50 ms period.
+         * A regular vTaskDelay(50) would add execution time
+         * to every interval.
+         */
+        vTaskDelayUntil(
+            &lastWakeTime,
+            pdMS_TO_TICKS(
+                PLATE_UPDATE_INTERVAL_MS
+            )
+        );
+    }
+}
 
 #define DO_NOT_STOP_HERE 0
 void temperatureTask(void *parameter){
@@ -309,7 +599,7 @@ void MyServerCallbacks::onConnect(BLEServer* server) {
     deviceConnected = true;
 
     Serial.println("BLE device connected!");
-    showOLEDMessage("Device is\nconnected.");
+    displayMessage("Device is\nconnected.");
 }
 
 void MyServerCallbacks::onDisconnect(BLEServer* server) {
@@ -320,10 +610,10 @@ void MyServerCallbacks::onDisconnect(BLEServer* server) {
     BLEDevice::startAdvertising();
     Serial.println("BLE advertising restarted.");
 
-    showOLEDMessage("Waiting for connection...");
+    displayMessage("Waiting for connection...");
 }
 
-void OledTextCallbacks::onWrite(BLECharacteristic* characteristic) {
+void DisplayCallbacks::onWrite(BLECharacteristic* characteristic) {
     if (characteristic->getUUID().toString() != OLED_TEXT_CHAR_UUID) {
         return;
     }
@@ -336,7 +626,7 @@ void OledTextCallbacks::onWrite(BLECharacteristic* characteristic) {
         return;
     }
 
-    OledTextMessage message{};
+    displayMessage_t message{};
 
     // Reserve one byte for the null terminator.
     size_t copyLength = textFromApp.length();
@@ -348,8 +638,8 @@ void OledTextCallbacks::onWrite(BLECharacteristic* characteristic) {
     memcpy(message.text, textFromApp.data(), copyLength);
     message.text[copyLength] = '\0';
 
-    if (xQueueSend(oledTextQueue, &message, 0) != pdTRUE) {
-        Serial.println("OLED queue is full. Message discarded.");
+    if (xQueueSend(displayQueue, &message, 0) != pdTRUE) {
+        Serial.println("Display queue is full. Message discarded.");
     }
 }
 
@@ -377,7 +667,7 @@ void TemperatureCallbacks::onWrite(BLECharacteristic* characteristic) {
         xQueueOverwrite(temperatureCommandQueue, &command);
     } else{
 		Serial.println("Exiting program. Failed to receive temperature command. Err code: ERR_CODE_TEMPERATURE_COMMAND_RECEIVE_FAILED");
-		exit(ERR_CODE_TEMPERATURE_COMMAND_RECEIVE_FAILED);
+		ESP.restart();
 	}
 }
 
@@ -405,13 +695,10 @@ void CapacityCallbacks::onWrite(BLECharacteristic* characteristic) {
         xQueueOverwrite(capacityCommandQueue, &command);
     } else{
 		Serial.println("Exiting program. Failed to receive capacity command. Err code: ERR_CODE_CAPACITY_COMMAND_RECEIVE_FAILED");
-		exit(ERR_CODE_CAPACITY_COMMAND_RECEIVE_FAILED);
+		ESP.restart();
 	}
 }
 
-// store received photo bytes to buffer. Multiple onWrite() calls will occur for these stream of bytes
-// The mobile app will process the image. Phone will decode PNG to RGB565 pixels
-std::vector<uint8_t> photoBuffer;
 void PhotoCallbacks::onWrite(BLECharacteristic* characteristic){
     if (characteristic->getUUID().toString() != PHOTO_UPLOAD_UUID) {
 		return;
@@ -422,21 +709,22 @@ void PhotoCallbacks::onWrite(BLECharacteristic* characteristic){
             return;
         }
 
-    const uint8_t* data = reinterpret_cast<const uint8_t*>(value.data());
+    const uint8_t* packet = reinterpret_cast<const uint8_t*>(value.data());
+    const size_t packetLength = value.length();
+    // Log the BLE write before processing it.
+    Serial.printf( "Received image packet: type=0x%02X, length=%u\n", packet[0], static_cast<unsigned>(packetLength));
 
-
-    photoBuffer.insert(photoBuffer.end(), data, data + value.size());
-    Serial.printf("Received %d bytes. Total: %d bytes\n", value.size(), photoBuffer.size());
-
-    // TO-DO:
-    // Test with mobile app to see if I can atleast receive the data.
-    // Design tiny protocol between ESP32 and app to determine when image is finished
+    // What type of packet is it? Start, Data, End, Abort?
+    handleImagePacket(packet, packetLength, display);
 }
+
+
 
 int bluetoothinit(){
 	Serial.println("Starting BLE...");
-	showOLEDMessage("Starting BLE...");
+	displayMessage("Starting BLE...");
 	BLEDevice::init("ESP32-BLE-Test");
+    BLEDevice::setMTU(247);
 
 	BLEServer* server = BLEDevice::createServer();
 	server->setCallbacks(&serverCallbacks);
@@ -446,14 +734,14 @@ int bluetoothinit(){
 
 	// Create characteristics
     // recall that the properties are read from the CLIENT'S perspective (the mobile app)
-	oledTextCharacteristic = smartCupService->createCharacteristic(OLED_TEXT_CHAR_UUID, BLECharacteristic::PROPERTY_WRITE);
+	displayCharacteristic = smartCupService->createCharacteristic(OLED_TEXT_CHAR_UUID, BLECharacteristic::PROPERTY_WRITE);
 	heatingPadCharacteristic = smartCupService->createCharacteristic(HEATING_PAD_CHAR_UUID, BLECharacteristic::PROPERTY_WRITE);
 	temperatureCharacteristic = smartCupService->createCharacteristic(TEMPERATURE_CHAR_UUID, BLECharacteristic::PROPERTY_READ | BLECharacteristic::PROPERTY_NOTIFY | BLECharacteristic::PROPERTY_WRITE);
 	capacityCharacteristic = smartCupService->createCharacteristic(CAPACITY_CHAR_UUID, BLECharacteristic::PROPERTY_READ | BLECharacteristic::PROPERTY_NOTIFY |  BLECharacteristic::PROPERTY_WRITE);
     photoCharacteristic = smartCupService->createCharacteristic(PHOTO_UPLOAD_UUID, BLECharacteristic:: PROPERTY_WRITE);
                                                                             
 	// Attach the callback that runs when the phone writes data
-	oledTextCharacteristic->setCallbacks((BLECharacteristicCallbacks*)&oledTextCallbacks);
+	displayCharacteristic->setCallbacks((BLECharacteristicCallbacks*)&displayCallbacks);
 	///heatingPadCharacteristic->setCallbacks((BLECharacteristicCallbacks*)&heatingPadCallbacks);
 	temperatureCharacteristic->setCallbacks((BLECharacteristicCallbacks*)&temperatureCallbackHandler);
 	capacityCharacteristic->setCallbacks((BLECharacteristicCallbacks*)&capacityCallbackHandler);
@@ -469,7 +757,7 @@ int bluetoothinit(){
 	advertising->start();
 
 	Serial.println("BLE advertising started.");
-	showOLEDMessage("BLE advertising started.\nWaiting for connection...");
+	displayMessage("BLE advertising started.\nWaiting for connection...");
 
 	return EXT_CODE_SUCCESS;
 }

@@ -24,7 +24,6 @@
 void setup() {
  Serial.begin(MONITOR_SPEED);
  delay(DEFAULT_DELAY);
-
  Serial.println("Hello World! Starting ESP32 BLE + OLED test...");
 
  // =======================================================
@@ -52,6 +51,8 @@ if (temperatureSensorInit() != EXT_CODE_SUCCESS) {
     // ESP.restart();
 }
 
+plateTemperatureSensorInit();
+
 if (buzzerGPIOinit() != EXT_CODE_SUCCESS) {
     printError("Buzzer GPIO initialization failed!", ERR_CODE_BUZZER_INIT_FAIL);
     // ESP.restart();
@@ -67,10 +68,10 @@ if (bluetoothinit() != EXT_CODE_SUCCESS) {
 // Software initialization
 // =======================================================
 
-oledTextQueue = xQueueCreate(5,sizeof(OledTextMessage));
+displayQueue = xQueueCreate(5,sizeof(displayMessage_t));
 
-if (oledTextQueue == nullptr) {
-    printError("Failed to create OLED text queue.", ERR_CODE_OLED_QUEUE_CREATION_FAILED);
+if (displayQueue == nullptr) {
+    printError("Failed to create display queue.", ERR_CODE_DISPLAY_QUEUE_CREATION_FAILED);
     // ESP.restart();
 }
 
@@ -95,9 +96,9 @@ if (capacityCommandQueue == nullptr) {
 // FreeRTOS task creation
 // =======================================================
 
-BaseType_t OLEDtaskResult = xTaskCreatePinnedToCore(
-    oledTextTask,
-    "OLED Text Task",
+BaseType_t displayTaskResult = xTaskCreatePinnedToCore(
+    displayTask,
+    "Display Task",
     4096,
     nullptr,
     1,
@@ -105,8 +106,8 @@ BaseType_t OLEDtaskResult = xTaskCreatePinnedToCore(
     CORE_0
 );
 
-if (OLEDtaskResult != pdPASS) {
-    printError("Failed to create OLED task.", ERR_CODE_OLED_TASK_CREATION_FAILED);
+if (displayTaskResult != pdPASS) {
+    printError("Failed to create display task.", ERR_CODE_DISPLAY_TASK_CREATION_FAILED);
     // ESP.restart();
 }
 
@@ -124,6 +125,21 @@ BaseType_t TemperaturetaskResult = xTaskCreatePinnedToCore(
 if (TemperaturetaskResult != pdPASS) {
     printError("Failed to create temperature task.", ERR_CODE_TEMPERATURE_TASK_CREATION_FAILED);
     // ESP.restart();
+}
+
+BaseType_t plateTemperatureTaskResult =
+    xTaskCreatePinnedToCore(
+        plateTemperatureTask,
+        "Plate Temperature Task",
+        3072,
+        nullptr,
+        1,
+        nullptr,
+        CORE_0
+    );
+
+if (plateTemperatureTaskResult != pdPASS) {
+    printError("Failed to create plate temperature task.", ERR_CODE_TEMPERATURE_TASK_CREATION_FAILED);
 }
 
 
