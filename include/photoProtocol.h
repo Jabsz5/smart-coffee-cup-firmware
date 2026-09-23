@@ -4,6 +4,15 @@
 #include <Arduino.h>
 #include <Adafruit_ST7789.h>
 
+#define PHOTO_PACKET_MAX_SIZE 244
+
+struct PhotoPacketMessage {
+    uint16_t length;
+    uint8_t data[PHOTO_PACKET_MAX_SIZE];
+};
+
+constexpr uint8_t UPLOAD_PHOTO_COMMAND = 21;
+constexpr uint8_t PHOTO_READY_ACK = 22;
 /**
  * Processes one complete BLE photo-protocol packet.
  *

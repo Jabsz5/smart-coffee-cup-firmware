@@ -105,3 +105,4 @@ void displayTask(void* parameter);
 void temperatureTask(void* parameter);
 void capacityTask(void* parameter);
 void alarmTask(void* parameter);
+void uploadPhotoTask(void* parameter);

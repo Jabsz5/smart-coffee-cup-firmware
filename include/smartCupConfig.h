@@ -101,9 +101,12 @@ constexpr int ERR_CODE_TEMPERATURE_COMMAND_RECEIVE_FAILED = 8;
 constexpr int ERR_CODE_CAPACITY_COMMAND_RECEIVE_FAILED = 9;
 constexpr int ERR_CODE_CAPACITY_QUEUE_CREATION_FAILED = 10;
 constexpr int ERR_CODE_CAPACITY_TASK_CREATION_FAILED = 11;
+constexpr int ERR_CODE_PHOTO_QUEUE_CREATION_FAILED = 15;
 constexpr int ERR_CODE_TEMP_SENSOR_INIT_FAILED = 12;
 constexpr int ERR_CODE_BUZZER_INIT_FAIL = 13;
 constexpr int ERR_CODE_ALARM_TASK_CREATION_FAILED = 14;
+constexpr int ERR_CODE_PHOTO_TASK_CREATION_FAILED = 16;
+constexpr int ERR_CODE_PHOTO_PACKET_QUEUE_CREATION_FAILED = 17;
 // ============================================================
 // ESP32 core assignments
 // ============================================================
@@ -119,6 +122,7 @@ constexpr uint8_t HEATING_PAD_OFF = 0;
 constexpr uint8_t HEATING_PAD_ON = 1;
 constexpr uint8_t CHECK_TEMPERATURE_COMMAND = 5;
 constexpr uint8_t CHECK_CAPACITY_COMMAND = 6;
+
 
 // ============================================================
 // Shared runtime state
@@ -147,3 +151,5 @@ extern BLECharacteristic* capacityCharacteristic;
 
 extern QueueHandle_t oledTextQueue;
 extern QueueHandle_t temperatureCommandQueue;
+extern QueueHandle_t uploadPhotoCommandQueue;
+extern QueueHandle_t photoPacketQueue;

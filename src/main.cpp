@@ -15,6 +15,7 @@
 
 #include "smartCupConfig.h"
 #include "drivers.h"
+#include "photoProtocol.h"
 
 
 #define MONITOR_SPEED 115200
@@ -91,7 +92,17 @@ if (capacityCommandQueue == nullptr) {
     // ESP.restart();
 }
 
+uploadPhotoCommandQueue = xQueueCreate(1, sizeof(uint8_t));
 
+if (uploadPhotoCommandQueue == nullptr) {
+    printError("Failed to create photo command queue.", ERR_CODE_PHOTO_QUEUE_CREATION_FAILED);
+}
+
+photoPacketQueue = xQueueCreate(10, sizeof(PhotoPacketMessage));
+
+if (photoPacketQueue == nullptr) {
+    printError("Failed to create photo packet queue.", ERR_CODE_PHOTO_PACKET_QUEUE_CREATION_FAILED);
+}
 // =======================================================
 // FreeRTOS task creation
 // =======================================================
@@ -172,6 +183,24 @@ BaseType_t alarmTaskResult = xTaskCreatePinnedToCore(
 if (alarmTaskResult != pdPASS) {
     printError("Failed to create alarm task.", ERR_CODE_ALARM_TASK_CREATION_FAILED);
     // ESP.restart();
+}
+
+BaseType_t uploadPhotoTaskResult =
+    xTaskCreatePinnedToCore(
+        uploadPhotoTask,
+        "Upload Photo Task",
+        8192,
+        nullptr,
+        1,
+        nullptr,
+        CORE_0
+    );
+
+if (uploadPhotoTaskResult != pdPASS) {
+    printError(
+        "Failed to create upload photo task.",
+        ERR_CODE_PHOTO_TASK_CREATION_FAILED
+    );
 }
 
   // TO-DO: Also initialize capacity sensors here

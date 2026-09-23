@@ -34,6 +34,7 @@ Adafruit_ST7789 display(&displaySPI, TFT_CS, TFT_DC, TFT_RST);
 // Going to make display have multiple modes.
 
 enum class DisplayMode : uint8_t {
+    Initialization, 
     SensorDashboard,
     Text,
     Photo,
@@ -41,8 +42,7 @@ enum class DisplayMode : uint8_t {
 };
 
 extern volatile DisplayMode currentDisplayMode;
-
-volatile DisplayMode currentDisplayMode = DisplayMode::SensorDashboard;
+volatile DisplayMode currentDisplayMode = DisplayMode::Initialization;
 
 void drawSensorDisplayLayout() {
     display.fillScreen(ST77XX_BLACK);
@@ -387,37 +387,63 @@ int OLEDinit() {
   	return EXT_CODE_SUCCESS;
 }
 
+/*
+Two different behaviors occuring;
+1. State transition
+2. State update while continuously in said state.
+*/
 void displayTask(void* parameter) {
-    constexpr TickType_t DISPLAY_INTERVAL =
-        pdMS_TO_TICKS(100);
+    Serial.println("Display task entered.");
+    constexpr TickType_t DISPLAY_INTERVAL = pdMS_TO_TICKS(100);
 
-    TickType_t lastWakeTime =
-        xTaskGetTickCount();
+    TickType_t lastWakeTime = xTaskGetTickCount();
 
-    Serial.printf(
-        "Display task started on Core %d\n",
-        xPortGetCoreID()
-    );
+    DisplayMode previousDisplayMode = currentDisplayMode;
 
-    // The dashboard is the default display mode.
-    currentDisplayMode =
-        DisplayMode::SensorDashboard;
-
-    drawSensorDisplayLayout();
-    updateSensorDisplay();
+    Serial.printf("Display task started on Core %d\n", xPortGetCoreID());
 
     while (true) {
-        if (
-            currentDisplayMode ==
-            DisplayMode::SensorDashboard
-        ) {
+
+        
+        if (currentDisplayMode != previousDisplayMode) {
+
+            switch (currentDisplayMode) {
+
+                case DisplayMode::Initialization:
+                    /*
+                    Do nothing.
+                    setup() already makes the display init.
+                    No need to rewrite itself.
+                    */
+                    break;
+
+                case DisplayMode::SensorDashboard:
+                    Serial.println("Switching display to Sensor Dashboard mode\n");
+                    drawSensorDisplayLayout();
+                    updateSensorDisplay();
+                    break;
+
+                case DisplayMode::Text:
+                    // Draw text screen later
+                    break;
+
+                case DisplayMode::Photo:
+                    // Draw photo screen later
+                    break;
+
+                case DisplayMode::Drawing:
+                    // Draw drawing screen later
+                    break;
+            }
+            previousDisplayMode = currentDisplayMode;
+        }
+
+        // Continuously update dynamic screens
+        if (currentDisplayMode == DisplayMode::SensorDashboard){
             updateSensorDisplay();
         }
 
-        vTaskDelayUntil(
-            &lastWakeTime,
-            DISPLAY_INTERVAL
-        );
+        vTaskDelayUntil(&lastWakeTime, DISPLAY_INTERVAL);
     }
 }
 
@@ -594,12 +620,74 @@ void capacityTask(void *parameter){
 	}
 }
 
+void uploadPhotoTask(void* parameter) {
+    uint8_t command;
+    PhotoPacketMessage packetMessage;
+
+    Serial.printf("Upload photo task started on Core %d\n", xPortGetCoreID());
+
+    while (true) {
+        /*
+         * ==================================
+         * WAIT FOR PHOTO UPLOAD REQUEST
+         * ==================================
+         */
+
+        if (xQueueReceive(uploadPhotoCommandQueue, &command, portMAX_DELAY) != pdTRUE) {
+            continue;
+        }
+
+        if (command != UPLOAD_PHOTO_COMMAND) {
+            continue;
+        }
+
+        Serial.println("Beginning photo upload process.");
+
+        /*
+         * Stop the sensor dashboard from
+         * touching the display.
+         */
+        currentDisplayMode = DisplayMode::Photo;
+
+        /*
+         * ==================================
+         * ESP32 IS READY
+         * ==================================
+         */
+
+        if (deviceConnected && photoCharacteristic != nullptr) {
+            uint8_t readyAck = PHOTO_READY_ACK;
+
+            photoCharacteristic->setValue(&readyAck, sizeof(readyAck));
+
+            photoCharacteristic->notify();
+            Serial.printf("Photo READY ACK sent: %u\n", readyAck);
+        }
+
+        /*
+         * ==================================
+         * RECEIVE PHOTO PACKETS
+         * ==================================
+         */
+
+        while (true) {
+            if (xQueueReceive(photoPacketQueue, &packetMessage, portMAX_DELAY ) != pdTRUE) {
+                continue;
+            }
+            Serial.printf("Processing photo packet: type=0x%02X, length=%u\n", packetMessage.data[0], packetMessage.length);
+            handleImagePacket(packetMessage.data, packetMessage.length, display);
+        }
+    }
+}
 
 void MyServerCallbacks::onConnect(BLEServer* server) {
     deviceConnected = true;
 
     Serial.println("BLE device connected!");
     displayMessage("Device is\nconnected.");
+    Serial.println("Changing display mode to SensorDashboard.");
+    currentDisplayMode = DisplayMode::SensorDashboard;
+    
 }
 
 void MyServerCallbacks::onDisconnect(BLEServer* server) {
@@ -699,25 +787,66 @@ void CapacityCallbacks::onWrite(BLECharacteristic* characteristic) {
 	}
 }
 
-void PhotoCallbacks::onWrite(BLECharacteristic* characteristic){
+/* TO-DO:
+Remove handleIimagePacket() out of BLE callback. 
+BLE callback should do as little work as possible.
+Handle work in the actual queue next.
+For now, test sending the command byte from mobile app first
+*/
+void PhotoCallbacks::onWrite(BLECharacteristic* characteristic) {
     if (characteristic->getUUID().toString() != PHOTO_UPLOAD_UUID) {
-		return;
-	}
+        return;
+    }
 
     std::string value = characteristic->getValue();
+
     if (value.empty()) {
-            return;
-        }
+        Serial.println("Photo characteristic received empty value.");
+        return;
+    }
 
     const uint8_t* packet = reinterpret_cast<const uint8_t*>(value.data());
+
     const size_t packetLength = value.length();
-    // Log the BLE write before processing it.
-    Serial.printf( "Received image packet: type=0x%02X, length=%u\n", packet[0], static_cast<unsigned>(packetLength));
 
-    // What type of packet is it? Start, Data, End, Abort?
-    handleImagePacket(packet, packetLength, display);
+    /*
+     * -----------------------------
+     * PHOTO CONTROL COMMAND
+     * -----------------------------
+     */
+
+    if (packetLength == 1 && packet[0] == UPLOAD_PHOTO_COMMAND) {
+        uint8_t command = packet[0];
+        Serial.printf("Photo upload command received: %u\n",command);
+        xQueueOverwrite(uploadPhotoCommandQueue, &command);
+        return;
+    }
+
+    /*
+     * -----------------------------
+     * PHOTO PROTOCOL PACKET
+     * -----------------------------
+     * Anything else is going to be a photo packet
+     */
+
+    if (packetLength > PHOTO_PACKET_MAX_SIZE) {
+        Serial.printf("Photo packet too large: %u bytes\n", static_cast<unsigned int>(packetLength));
+        return;
+    }
+
+    PhotoPacketMessage message{};
+
+    message.length = static_cast<uint16_t>(packetLength);
+
+    memcpy(message.data, packet, packetLength);
+
+    if (xQueueSend(photoPacketQueue, &message, 0) != pdTRUE) {
+        Serial.println("Photo packet queue full. Packet dropped.");
+        return;
+    }
+
+    Serial.printf("Queued photo packet: type=0x%02X, length=%u\n", message.data[0], message.length);
 }
-
 
 
 int bluetoothinit(){
@@ -738,8 +867,11 @@ int bluetoothinit(){
 	heatingPadCharacteristic = smartCupService->createCharacteristic(HEATING_PAD_CHAR_UUID, BLECharacteristic::PROPERTY_WRITE);
 	temperatureCharacteristic = smartCupService->createCharacteristic(TEMPERATURE_CHAR_UUID, BLECharacteristic::PROPERTY_READ | BLECharacteristic::PROPERTY_NOTIFY | BLECharacteristic::PROPERTY_WRITE);
 	capacityCharacteristic = smartCupService->createCharacteristic(CAPACITY_CHAR_UUID, BLECharacteristic::PROPERTY_READ | BLECharacteristic::PROPERTY_NOTIFY |  BLECharacteristic::PROPERTY_WRITE);
-    photoCharacteristic = smartCupService->createCharacteristic(PHOTO_UPLOAD_UUID, BLECharacteristic:: PROPERTY_WRITE);
-                                                                            
+    photoCharacteristic = smartCupService->createCharacteristic(PHOTO_UPLOAD_UUID, BLECharacteristic:: PROPERTY_WRITE | BLECharacteristic::PROPERTY_NOTIFY);
+    
+    // Allows mobile client to subscribe to photo characteristic's notification
+    photoCharacteristic->addDescriptor(new BLE2902());
+
 	// Attach the callback that runs when the phone writes data
 	displayCharacteristic->setCallbacks((BLECharacteristicCallbacks*)&displayCallbacks);
 	///heatingPadCharacteristic->setCallbacks((BLECharacteristicCallbacks*)&heatingPadCallbacks);

@@ -14,5 +14,7 @@ BLECharacteristic* photoCharacteristic = nullptr;
 QueueHandle_t displayQueue = nullptr;
 QueueHandle_t temperatureCommandQueue = nullptr;
 QueueHandle_t capacityCommandQueue = nullptr;
+QueueHandle_t uploadPhotoCommandQueue = nullptr;
+QueueHandle_t photoPacketQueue = nullptr;
 
 TaskHandle_t alarmTaskHandle = nullptr;
