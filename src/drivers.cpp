@@ -215,8 +215,7 @@ static float plateTempF = NAN;
 
 // Protects plateTempF because one FreeRTOS task writes it while
 // other tasks may read it.
-static portMUX_TYPE plateTemperatureMux =
-    portMUX_INITIALIZER_UNLOCKED;
+static portMUX_TYPE plateTemperatureMux = portMUX_INITIALIZER_UNLOCKED;
 
 
 void plateTemperatureSensorInit() {
@@ -226,15 +225,9 @@ void plateTemperatureSensorInit() {
     analogReadResolution(12);
 
     // Increases the measurable input-voltage range.
-    analogSetPinAttenuation(
-        THERMISTOR_PIN,
-        ADC_11db
-    );
+    analogSetPinAttenuation(THERMISTOR_PIN, ADC_11db);
 
-    Serial.printf(
-        "Plate thermistor initialized on GPIO %u\n",
-        THERMISTOR_PIN
-    );
+    Serial.printf("Plate thermistor initialized on GPIO %u\n", THERMISTOR_PIN);
 }
 
 float readPlateTemperature() {
@@ -245,8 +238,7 @@ float readPlateTemperature() {
         total += analogRead(THERMISTOR_PIN);
     }
 
-    const float adc =
-        static_cast<float>(total) / 8.0f;
+    const float adc = static_cast<float>(total) / 8.0f;
 
     // Zero or full-scale normally indicates invalid wiring,
     // a short circuit, or a disconnected thermistor.
@@ -254,46 +246,26 @@ float readPlateTemperature() {
         return NAN;
     }
 
-    const float resistance =
-        SERIES_RESISTOR *
-        adc /
-        (ADC_MAX_VALUE - adc);
+    const float resistance = SERIES_RESISTOR * adc / (ADC_MAX_VALUE - adc);
 
-    if (
-        resistance <= 0.0f ||
-        !std::isfinite(resistance)
-    ) {
+    if (resistance <= 0.0f || !std::isfinite(resistance)) {
         return NAN;
     }
 
     // Beta-parameter thermistor equation.
-    const float inverseTemperatureK =
-        (1.0f / (TEMP_NOMINAL_C + 273.15f)) +
-        (1.0f / THERMISTOR_BETA) *
-            std::log(
-                resistance /
-                THERMISTOR_NOMINAL
-            );
+    const float inverseTemperatureK = (1.0f / (TEMP_NOMINAL_C + 273.15f)) + (1.0f / THERMISTOR_BETA) * std::log(resistance / THERMISTOR_NOMINAL);
 
-    if (
-        inverseTemperatureK <= 0.0f ||
-        !std::isfinite(inverseTemperatureK)
-    ) {
+    if (inverseTemperatureK <= 0.0f || !std::isfinite(inverseTemperatureK)) {
         return NAN;
     }
 
-    const float temperatureK =
-        1.0f / inverseTemperatureK;
+    const float temperatureK = 1.0f / inverseTemperatureK;
 
-    const float temperatureC =
-        temperatureK - 273.15f;
+    const float temperatureC = temperatureK - 273.15f;
 
-    const float temperatureF =
-        temperatureC * 9.0f / 5.0f + 32.0f;
+    const float temperatureF = temperatureC * 9.0f / 5.0f + 32.0f;
 
-    const float correctedTemperatureF =
-        temperatureF +
-        PLATE_TEMP_CORRECTION_F;
+    const float correctedTemperatureF = temperatureF + PLATE_TEMP_CORRECTION_F;
 
     if (!std::isfinite(correctedTemperatureF)) {
         return NAN;
@@ -334,12 +306,19 @@ int buzzerGPIOinit() {
 }
 
 void printError(const char* message, uint16_t errorCode) {
+    // ==========================================
     // Print to Serial
+    // ==========================================
+    Serial.println();
+    Serial.println("========== ERROR ==========");
     Serial.println(message);
     Serial.printf("Error code: 0x%04X\n", errorCode);
-    Serial.println("Restarting ESP32...");
+    Serial.println("===========================");
+    Serial.println();
 
+    // ==========================================
     // Print to ST7789
+    // ==========================================
     display.setTextColor(ST77XX_WHITE, ST77XX_BLACK);
     display.println(message);
 

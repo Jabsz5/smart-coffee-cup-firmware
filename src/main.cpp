@@ -36,7 +36,7 @@ void setup() {
 if (OLEDinit() != EXT_CODE_SUCCESS) {
     Serial.println("OLED init failed!");
     Serial.printf("Error code: 0x%04X\n", ERR_CODE_OLED_INIT_FAILED);
-    Serial.println("Restarting ESP32...");
+    //Serial.println("Restarting ESP32...");
     Serial.flush();
 
     // ESP.restart();
