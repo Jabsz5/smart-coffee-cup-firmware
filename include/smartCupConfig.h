@@ -7,6 +7,12 @@
 #include "freertos/queue.h"
 
 // ============================================================
+// Heater configuration
+// ============================================================
+
+constexpr int HEATER_PIN = 25;
+bool HEATER_ENABLED = false;
+// ============================================================
 // OLED configuration
 // ============================================================
 
@@ -91,6 +97,7 @@ constexpr const char PHOTO_UPLOAD_UUID[] =
 
 constexpr int EXT_CODE_SUCCESS = 0;
 constexpr int ERR_CODE_OLED_INIT_FAILED = 1;
+
 constexpr int ERR_CODE_BOOTUP_SCREEN_FAILED = 2;
 constexpr int ERR_CODE_BLUETOOTH_INIT_FAILED = 3;
 constexpr int ERR_CODE_DISPLAY_QUEUE_CREATION_FAILED = 4;
@@ -107,6 +114,8 @@ constexpr int ERR_CODE_BUZZER_INIT_FAIL = 13;
 constexpr int ERR_CODE_ALARM_TASK_CREATION_FAILED = 14;
 constexpr int ERR_CODE_PHOTO_TASK_CREATION_FAILED = 16;
 constexpr int ERR_CODE_PHOTO_PACKET_QUEUE_CREATION_FAILED = 17;
+constexpr int ERR_CODE_SPI_INIT_FAILED = 18;
+constexpr int ERR_CODE_FAILED_WRITE_TO_DISPLAY = 19;
 // ============================================================
 // ESP32 core assignments
 // ============================================================

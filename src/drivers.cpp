@@ -170,43 +170,66 @@ DallasTemperature ambientSensor(&ambientOneWire);
 bool alarmArmed = false;
 
 
-int temperatureSensorInit(){
-  activeSensor.begin();
-  ambientSensor.begin();
-  /*
-    * Use 12-bit resolution.
-    * 12-bit conversion takes up to approximately 750 ms.
-  */
-   activeSensor.setResolution(12);
-   ambientSensor.setResolution(12);
-  /*
-    * Do not block inside requestTemperatures().
-    * This lets both sensors perform their conversions at the same time.
-  */
-  activeSensor.setWaitForConversion(false);
-  ambientSensor.setWaitForConversion(false);
+int temperatureSensorInit() {
+    constexpr uint8_t MAX_RETRIES = 5;
 
-  uint8_t activeSensorCount = activeSensor.getDeviceCount();
-  uint8_t ambientSensorCount = ambientSensor.getDeviceCount();
+    for (uint8_t attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+        Serial.printf("Temperature sensor initialization attempt %u/%u\n", attempt, MAX_RETRIES);
 
-  char activeSensorMessage[32];
-  char ambientSensorMessage[32];
+        activeSensor.begin();
+        ambientSensor.begin();
 
-  snprintf(activeSensorMessage, sizeof(activeSensorMessage), "Active sensors found: %u", static_cast<unsigned int>(activeSensorCount));
-  snprintf(ambientSensorMessage, sizeof(ambientSensorMessage), "Ambient sensors found: %u", static_cast<unsigned int>(ambientSensorCount));
+        /*
+         * Use 12-bit resolution.
+         * 12-bit conversion takes up to approximately 750 ms.
+         */
+        activeSensor.setResolution(12);
+        ambientSensor.setResolution(12);
 
-  displayMessage(activeSensorMessage);
-  Serial.println(activeSensorMessage);
+        /*
+         * Do not block inside requestTemperatures().
+         * This lets both sensors perform their conversions at the same time.
+         */
+        activeSensor.setWaitForConversion(false);
+        ambientSensor.setWaitForConversion(false);
 
-  displayMessage(ambientSensorMessage);
-  Serial.println(ambientSensorMessage);
+        uint8_t activeSensorCount = activeSensor.getDeviceCount();
+        uint8_t ambientSensorCount = ambientSensor.getDeviceCount();
 
-  if (activeSensorCount == 0 || ambientSensorCount == 0){
-	// either one failed. return fail status
-	return ERR_CODE_TEMP_SENSOR_INIT_FAILED;
-  }
+        char activeSensorMessage[32];
+        char ambientSensorMessage[32];
 
-  return EXT_CODE_SUCCESS;
+        snprintf(activeSensorMessage, sizeof(activeSensorMessage), "Active sensors found: %u", static_cast<unsigned int>(activeSensorCount));
+        snprintf(ambientSensorMessage, sizeof(ambientSensorMessage), "Ambient sensors found: %u", static_cast<unsigned int>(ambientSensorCount));
+
+        displayMessage(activeSensorMessage);
+        Serial.println(activeSensorMessage);
+
+        displayMessage(ambientSensorMessage);
+        Serial.println(ambientSensorMessage);
+
+        if (activeSensorCount > 0 && ambientSensorCount > 0) {
+            Serial.println("Temperature sensors initialized successfully. Heater enabled");
+            HEATER_ENABLED = true;
+            return EXT_CODE_SUCCESS;
+        }
+
+        Serial.println("Temperature sensor initialization failed.");
+
+        if (attempt < MAX_RETRIES) {
+            delay(500);
+        }
+    }
+
+    /*
+     * Temperature sensing is required for safe heater operation.
+     * Disable the heater if either sensor cannot be detected.
+     */
+    HEATER_ENABLED = false;
+    digitalWrite(HEATER_PIN, LOW);
+    Serial.println("Temperature sensors failed after 5 attempts. Heater disabled.");
+
+    return ERR_CODE_TEMP_SENSOR_INIT_FAILED;
 }
 
 // Latest valid plate-temperature reading.
@@ -334,7 +357,12 @@ void printError(const char* message, uint16_t errorCode) {
 // default boot up screen
 int bootupScreen(){
   displaySettingStartup();
-  display.println("Senior Design 2026\nGroup 5\nSmart Cofee Cup\nBooting up...\n");
+  constexpr int MESSAGE_LENGTH = 65;
+  size_t bytes = display.println("There should be stuff on the display if you are reading this :p\n");
+
+  if (bytes != MESSAGE_LENGTH){
+    return ERR_CODE_FAILED_WRITE_TO_DISPLAY;
+  }
   return EXT_CODE_SUCCESS;
 }
 
@@ -355,15 +383,27 @@ void displayMessage(const char* message) {
 }
 
 int OLEDinit() {
-  Serial.println("Starting ST7789...");
+    Serial.println("Starting ST7789...");
 
-	// SCLK, MISO unused, MOSI, CS
     displaySPI.begin(TFT_SCLK, -1, TFT_MOSI, TFT_CS);
 
+    // Check whether host=side SPI subsystem initialized correctly.
+    // Not true hardware validation.
+    if (displaySPI.bus() == nullptr) {
+        Serial.println("SPI bus initialization failed.");
+        return ERR_CODE_SPI_INIT_FAILED;
+    }
+
+    if (displaySPI.getClockDivider() == 0) {
+        Serial.println("SPI clock configuration failed.");
+        return ERR_CODE_SPI_INIT_FAILED;
+    }
+
     display.init(240, 320);
-    uint8_t rotation = 2; 
-    display.setRotation(rotation);  
-  	return EXT_CODE_SUCCESS;
+    uint8_t rotation = 2;
+    display.setRotation(rotation);
+
+    return EXT_CODE_SUCCESS;
 }
 
 /*
@@ -827,48 +867,100 @@ void PhotoCallbacks::onWrite(BLECharacteristic* characteristic) {
     Serial.printf("Queued photo packet: type=0x%02X, length=%u\n", message.data[0], message.length);
 }
 
+bool tryBluetoothInit() {
+    Serial.println("Starting BLE...");
+    displayMessage("Starting BLE...");
 
-int bluetoothinit(){
-	Serial.println("Starting BLE...");
-	displayMessage("Starting BLE...");
-	BLEDevice::init("ESP32-BLE-Test");
+    BLEDevice::init("ESP32-BLE-Test");
     BLEDevice::setMTU(247);
 
-	BLEServer* server = BLEDevice::createServer();
-	server->setCallbacks(&serverCallbacks);
+    BLEServer* server = BLEDevice::createServer();
 
-	// Create one BLE service for your smart coffee cup
-	BLEService* smartCupService = server->createService(SERVICE_UUID);
+    if (server == nullptr) {
+        Serial.println("Failed to create BLE server.");
+        return false;
+    }
 
-	// Create characteristics
-    // recall that the properties are read from the CLIENT'S perspective (the mobile app)
-	displayCharacteristic = smartCupService->createCharacteristic(OLED_TEXT_CHAR_UUID, BLECharacteristic::PROPERTY_WRITE);
-	heatingPadCharacteristic = smartCupService->createCharacteristic(HEATING_PAD_CHAR_UUID, BLECharacteristic::PROPERTY_WRITE);
-	temperatureCharacteristic = smartCupService->createCharacteristic(TEMPERATURE_CHAR_UUID, BLECharacteristic::PROPERTY_READ | BLECharacteristic::PROPERTY_NOTIFY | BLECharacteristic::PROPERTY_WRITE);
-	capacityCharacteristic = smartCupService->createCharacteristic(CAPACITY_CHAR_UUID, BLECharacteristic::PROPERTY_READ | BLECharacteristic::PROPERTY_NOTIFY |  BLECharacteristic::PROPERTY_WRITE);
-    photoCharacteristic = smartCupService->createCharacteristic(PHOTO_UPLOAD_UUID, BLECharacteristic:: PROPERTY_WRITE | BLECharacteristic::PROPERTY_NOTIFY);
-    
-    // Allows mobile client to subscribe to photo characteristic's notification
+    server->setCallbacks(&serverCallbacks);
+
+    BLEService* smartCupService = server->createService(SERVICE_UUID);
+
+    if (smartCupService == nullptr) {
+        Serial.println("Failed to create BLE service.");
+        return false;
+    }
+
+    displayCharacteristic = smartCupService->createCharacteristic(OLED_TEXT_CHAR_UUID, BLECharacteristic::PROPERTY_WRITE);
+    heatingPadCharacteristic = smartCupService->createCharacteristic(HEATING_PAD_CHAR_UUID, BLECharacteristic::PROPERTY_WRITE);
+    temperatureCharacteristic = smartCupService->createCharacteristic(TEMPERATURE_CHAR_UUID, BLECharacteristic::PROPERTY_READ | BLECharacteristic::PROPERTY_NOTIFY | BLECharacteristic::PROPERTY_WRITE);
+    capacityCharacteristic = smartCupService->createCharacteristic(CAPACITY_CHAR_UUID, BLECharacteristic::PROPERTY_READ | BLECharacteristic::PROPERTY_NOTIFY | BLECharacteristic::PROPERTY_WRITE);
+
+    photoCharacteristic = smartCupService->createCharacteristic(PHOTO_UPLOAD_UUID, BLECharacteristic::PROPERTY_WRITE | BLECharacteristic::PROPERTY_NOTIFY);
+
+    if (displayCharacteristic == nullptr || heatingPadCharacteristic == nullptr || temperatureCharacteristic == nullptr || capacityCharacteristic == nullptr || photoCharacteristic == nullptr) {
+        Serial.println("Failed to create one or more BLE characteristics.");
+        return false;
+    }
+
     photoCharacteristic->addDescriptor(new BLE2902());
 
-	// Attach the callback that runs when the phone writes data
-	displayCharacteristic->setCallbacks((BLECharacteristicCallbacks*)&displayCallbacks);
-	///heatingPadCharacteristic->setCallbacks((BLECharacteristicCallbacks*)&heatingPadCallbacks);
-	temperatureCharacteristic->setCallbacks((BLECharacteristicCallbacks*)&temperatureCallbackHandler);
-	capacityCharacteristic->setCallbacks((BLECharacteristicCallbacks*)&capacityCallbackHandler);
+    displayCharacteristic->setCallbacks((BLECharacteristicCallbacks*)&displayCallbacks);
+    // heatingPadCharacteristic->setCallbacks(
+    //     (BLECharacteristicCallbacks*)&heatingPadCallbacks
+    // );
+    temperatureCharacteristic->setCallbacks((BLECharacteristicCallbacks*)&temperatureCallbackHandler);
+    capacityCharacteristic->setCallbacks((BLECharacteristicCallbacks*)&capacityCallbackHandler);
     photoCharacteristic->setCallbacks((BLECharacteristicCallbacks*)&photoCallbackHandler);
 
-	// Start the BLE service
-	smartCupService->start();
+    smartCupService->start();
 
-	// Advertise the service UUID so the phone can find it
-	BLEAdvertising* advertising = BLEDevice::getAdvertising();
-	advertising->addServiceUUID(SERVICE_UUID);
-	advertising->setScanResponse(true);
-	advertising->start();
+    BLEAdvertising* advertising = BLEDevice::getAdvertising();
 
-	Serial.println("BLE advertising started.");
-	displayMessage("BLE advertising started.\nWaiting for connection...");
+    if (advertising == nullptr) {
+        Serial.println("Failed to get BLE advertising object.");
+        return false;
+    }
 
-	return EXT_CODE_SUCCESS;
+    advertising->addServiceUUID(SERVICE_UUID);
+    advertising->setScanResponse(true);
+    advertising->start();
+
+    Serial.println("BLE advertising started.");
+    displayMessage("BLE advertising started.\n Waiting for connection...");
+
+    return true;
+}
+
+int bluetoothinit() {
+    constexpr uint8_t MAX_RETRIES = 5;
+
+    for (uint8_t attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+
+        Serial.printf("BLE initialization attempt %u/%u\n", attempt, MAX_RETRIES);
+
+        if (tryBluetoothInit()) {
+            return EXT_CODE_SUCCESS;
+        }
+
+        Serial.printf("BLE initialization attempt %u failed.\n", attempt);
+
+        /*
+         * Remove objects/resources created during
+         * the unsuccessful BLE initialization.
+         */
+        BLEDevice::deinit(true);
+
+        if (attempt < MAX_RETRIES) {
+            delay(500);
+        }
+    }
+
+    Serial.println("BLE failed after 5 attempts. Continuing locally.");
+    displayCharacteristic = nullptr;
+    heatingPadCharacteristic = nullptr;
+    temperatureCharacteristic = nullptr;
+    capacityCharacteristic = nullptr;
+    photoCharacteristic = nullptr;
+
+    return ERR_CODE_BLUETOOTH_INIT_FAILED;
 }

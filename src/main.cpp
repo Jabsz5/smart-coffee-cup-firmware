@@ -31,37 +31,35 @@ void setup() {
 // Hardware initialization
 // =======================================================
 
-// The display cannot report its own initialization failure,
-// so this particular error is printed only to Serial.
+// We can only check for SPI errors
+// Hardware validation can only be done with exposed MISO pin
 if (OLEDinit() != EXT_CODE_SUCCESS) {
     Serial.println("OLED init failed!");
-    Serial.printf("Error code: 0x%04X\n", ERR_CODE_OLED_INIT_FAILED);
-    //Serial.println("Restarting ESP32...");
+    Serial.printf("Error code: 0x%04X\n", ERR_CODE_SPI_INIT_FAILED);
     Serial.flush();
 
-    // ESP.restart();
 }
 
+// Again, can only test ESP32 side
 if (bootupScreen() != EXT_CODE_SUCCESS) {
     printError("Bootup screen failed!", ERR_CODE_BOOTUP_SCREEN_FAILED);
-    // ESP.restart();
 }
 
+// Disables heater pin after 5 failed attempts
 if (temperatureSensorInit() != EXT_CODE_SUCCESS) {
     printError("Temperature sensors failed to initialize!", ERR_CODE_TEMP_SENSOR_INIT_FAILED);
-    // ESP.restart();
 }
 
+// I'm not sure what this actuallly is... (???)
 plateTemperatureSensorInit();
 
 if (buzzerGPIOinit() != EXT_CODE_SUCCESS) {
     printError("Buzzer GPIO initialization failed!", ERR_CODE_BUZZER_INIT_FAIL);
-    // ESP.restart();
 }
 
+// BLE stack is disabled after 5 failed attempts
 if (bluetoothinit() != EXT_CODE_SUCCESS) {
     printError("Bluetooth initialization failed!", ERR_CODE_BLUETOOTH_INIT_FAILED);
-    // ESP.restart();
 }
 
 
@@ -69,11 +67,10 @@ if (bluetoothinit() != EXT_CODE_SUCCESS) {
 // Software initialization
 // =======================================================
 
-displayQueue = xQueueCreate(5,sizeof(displayMessage_t));
+displayQueue = xQueueCreate(5, sizeof(displayMessage_t));
 
 if (displayQueue == nullptr) {
     printError("Failed to create display queue.", ERR_CODE_DISPLAY_QUEUE_CREATION_FAILED);
-    // ESP.restart();
 }
 
 
@@ -81,7 +78,6 @@ temperatureCommandQueue = xQueueCreate(1, sizeof(uint8_t));
 
 if (temperatureCommandQueue == nullptr) {
     printError("Failed to create temperature command queue.", ERR_CODE_TEMPERATURE_COMMAND_QUEUE_CREATION_FAILED);
-    // ESP.restart();
 }
 
 
@@ -89,7 +85,6 @@ capacityCommandQueue = xQueueCreate(1, sizeof(uint8_t));
 
 if (capacityCommandQueue == nullptr) {
     printError("Failed to create capacity command queue.", ERR_CODE_CAPACITY_QUEUE_CREATION_FAILED);
-    // ESP.restart();
 }
 
 uploadPhotoCommandQueue = xQueueCreate(1, sizeof(uint8_t));
