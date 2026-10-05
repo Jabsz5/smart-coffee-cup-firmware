@@ -5,7 +5,6 @@
 
 #include <BLEDevice.h>
 #include <BLEServer.h>
-
 #include "freertos/FreeRTOS.h"
 #include "freertos/queue.h"
 #include "smartCupConfig.h"
@@ -15,45 +14,24 @@
 #include <DallasTemperature.h>
 
 
+
 struct displayMessage_t {
     char text[OLED_TEXT_MAX_LENGTH];
 };
 
-// BLE server connection callbacks
-class MyServerCallbacks : public BLEServerCallbacks {
-public:
-    void onConnect(BLEServer* server) override;
-    void onDisconnect(BLEServer* server) override;
+enum class DisplayMode : uint8_t {
+    Initialization,
+    SensorDashboard,
+    Text,
+    Photo,
+    Drawing
 };
 
-// BLE OLED characteristic callback
-class DisplayCallbacks : public BLECharacteristicCallbacks {
-public:
-    void onWrite(BLECharacteristic* characteristic) override;
-};
-
-// BLE temperature characteristic callback
-class TemperatureCallbacks : public BLECharacteristicCallbacks {
-public:
-    void onWrite(BLECharacteristic* characteristic) override;
-};
-
-// BLE capacity characteristic callback
-class CapacityCallbacks : public BLECharacteristicCallbacks {
-public:
-    void onWrite(BLECharacteristic* characteristic) override;
-};
-
-class PhotoCallbacks : public BLECharacteristicCallbacks {
-public:
-    void onWrite(BLECharacteristic* characteristic) override;
-};
+extern volatile DisplayMode currentDisplayMode;
 
 // Driver objects defined in drivers.cpp
 extern Adafruit_ST7789 display;
-extern DisplayCallbacks displayCallbacks;
-extern TemperatureCallbacks temperatureCallbackHandler;
-extern CapacityCallbacks capacityCallbackHandler;
+
 extern OneWire activeOneWire;
 extern OneWire ambientOneWire;
 extern DallasTemperature activeSensor;

@@ -114,7 +114,6 @@ BaseType_t displayTaskResult = xTaskCreatePinnedToCore(
 
 if (displayTaskResult != pdPASS) {
     printError("Failed to create display task.", ERR_CODE_DISPLAY_TASK_CREATION_FAILED);
-    // ESP.restart();
 }
 
 
@@ -130,7 +129,6 @@ BaseType_t TemperaturetaskResult = xTaskCreatePinnedToCore(
 
 if (TemperaturetaskResult != pdPASS) {
     printError("Failed to create temperature task.", ERR_CODE_TEMPERATURE_TASK_CREATION_FAILED);
-    // ESP.restart();
 }
 
 BaseType_t plateTemperatureTaskResult =
@@ -161,7 +159,6 @@ BaseType_t CapacityTaskResult = xTaskCreatePinnedToCore(
 
 if (CapacityTaskResult != pdPASS) {
     printError("Failed to create capacity task.", ERR_CODE_CAPACITY_TASK_CREATION_FAILED);
-    // ESP.restart();
 }
 
 
@@ -177,7 +174,6 @@ BaseType_t alarmTaskResult = xTaskCreatePinnedToCore(
 
 if (alarmTaskResult != pdPASS) {
     printError("Failed to create alarm task.", ERR_CODE_ALARM_TASK_CREATION_FAILED);
-    // ESP.restart();
 }
 
 BaseType_t uploadPhotoTaskResult =
@@ -192,10 +188,7 @@ BaseType_t uploadPhotoTaskResult =
     );
 
 if (uploadPhotoTaskResult != pdPASS) {
-    printError(
-        "Failed to create upload photo task.",
-        ERR_CODE_PHOTO_TASK_CREATION_FAILED
-    );
+    printError("Failed to create upload photo task.", ERR_CODE_PHOTO_TASK_CREATION_FAILED);
 }
 
   // TO-DO: Also initialize capacity sensors here

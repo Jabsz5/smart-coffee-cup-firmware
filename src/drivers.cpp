@@ -17,6 +17,7 @@
 #include <SPI.h>
 #include "photoProtocol.h"
 #include <cmath>
+#include "bluetoothCallbacks.h"
 
 // Display pins
 #define TFT_CS    7
@@ -33,15 +34,6 @@ Adafruit_ST7789 display(&displaySPI, TFT_CS, TFT_DC, TFT_RST);
 
 // Going to make display have multiple modes.
 
-enum class DisplayMode : uint8_t {
-    Initialization, 
-    SensorDashboard,
-    Text,
-    Photo,
-    Drawing
-};
-
-extern volatile DisplayMode currentDisplayMode;
 volatile DisplayMode currentDisplayMode = DisplayMode::Initialization;
 
 void drawSensorDisplayLayout() {
@@ -156,11 +148,6 @@ void updateSensorDisplay() {
 
 
 
-MyServerCallbacks serverCallbacks;
-DisplayCallbacks displayCallbacks;
-TemperatureCallbacks temperatureCallbackHandler;
-CapacityCallbacks capacityCallbackHandler;
-PhotoCallbacks photoCallbackHandler;
 OneWire activeOneWire(ACTIVE_SENSOR_PIN);
 OneWire ambientOneWire(AMBIENT_SENSOR_PIN);
 
@@ -699,173 +686,6 @@ void uploadPhotoTask(void* parameter) {
     }
 }
 
-void MyServerCallbacks::onConnect(BLEServer* server) {
-    deviceConnected = true;
-
-    Serial.println("BLE device connected!");
-    displayMessage("Device is\nconnected.");
-    Serial.println("Changing display mode to SensorDashboard.");
-    currentDisplayMode = DisplayMode::SensorDashboard;
-    
-}
-
-void MyServerCallbacks::onDisconnect(BLEServer* server) {
-    deviceConnected = false;
-
-    Serial.println("BLE device disconnected!");
-
-    BLEDevice::startAdvertising();
-    Serial.println("BLE advertising restarted.");
-
-    displayMessage("Waiting for connection...");
-}
-
-void DisplayCallbacks::onWrite(BLECharacteristic* characteristic) {
-    if (characteristic->getUUID().toString() != OLED_TEXT_CHAR_UUID) {
-        return;
-    }
-
-    std::string textFromApp = characteristic->getValue();
-
-    Serial.printf("BLE onWrite callback running on Core %d\n", xPortGetCoreID());
-
-    if (textFromApp.empty()) {
-        return;
-    }
-
-    displayMessage_t message{};
-
-    // Reserve one byte for the null terminator.
-    size_t copyLength = textFromApp.length();
-
-    if (copyLength >= OLED_TEXT_MAX_LENGTH) {
-        copyLength = OLED_TEXT_MAX_LENGTH - 1;
-    }
-
-    memcpy(message.text, textFromApp.data(), copyLength);
-    message.text[copyLength] = '\0';
-
-    if (xQueueSend(displayQueue, &message, 0) != pdTRUE) {
-        Serial.println("Display queue is full. Message discarded.");
-    }
-}
-
-void TemperatureCallbacks::onWrite(BLECharacteristic* characteristic) {
-    if (characteristic->getUUID().toString() != TEMPERATURE_CHAR_UUID) {
-        return;
-    }
-
-    std::string temperatureValue = characteristic->getValue();
-
-    if (temperatureValue.empty()) {
-        Serial.println("Temperature command was empty.");
-        return;
-    }
-
-    uint8_t command = static_cast<uint8_t>(
-        static_cast<unsigned char>(temperatureValue[0])
-    );
-
-    temperatureControlValue = command;
-
-    Serial.printf("Temperature control command received: %u\r\n", temperatureControlValue);
-
-    if (command == CHECK_TEMPERATURE_COMMAND) {
-        xQueueOverwrite(temperatureCommandQueue, &command);
-    } else{
-		Serial.println("Exiting program. Failed to receive temperature command. Err code: ERR_CODE_TEMPERATURE_COMMAND_RECEIVE_FAILED");
-		ESP.restart();
-	}
-}
-
-// value range is from [0, 1] for capacity value. Will convert to percentage 
-void CapacityCallbacks::onWrite(BLECharacteristic* characteristic) {
-	if (characteristic->getUUID().toString() != CAPACITY_CHAR_UUID) {
-		return;
-	}
-
-	std::string capacityValue = characteristic->getValue();
-
-	if (capacityValue.empty()) {
-		Serial.println("Capacity command was empty.");
-		return;
-	}
-
-	uint8_t command = static_cast<uint8_t>(
-		static_cast<unsigned char>(capacityValue[0])
-	);
-
-	Serial.printf("Capacity command received: %u\r\n", command);
-
-	// Here you can add logic to handle the capacity command as needed.
-	if (command == CHECK_CAPACITY_COMMAND) {
-        xQueueOverwrite(capacityCommandQueue, &command);
-    } else{
-		Serial.println("Exiting program. Failed to receive capacity command. Err code: ERR_CODE_CAPACITY_COMMAND_RECEIVE_FAILED");
-		ESP.restart();
-	}
-}
-
-/* TO-DO:
-Remove handleIimagePacket() out of BLE callback. 
-BLE callback should do as little work as possible.
-Handle work in the actual queue next.
-For now, test sending the command byte from mobile app first
-*/
-void PhotoCallbacks::onWrite(BLECharacteristic* characteristic) {
-    if (characteristic->getUUID().toString() != PHOTO_UPLOAD_UUID) {
-        return;
-    }
-
-    std::string value = characteristic->getValue();
-
-    if (value.empty()) {
-        Serial.println("Photo characteristic received empty value.");
-        return;
-    }
-
-    const uint8_t* packet = reinterpret_cast<const uint8_t*>(value.data());
-
-    const size_t packetLength = value.length();
-
-    /*
-     * -----------------------------
-     * PHOTO CONTROL COMMAND
-     * -----------------------------
-     */
-
-    if (packetLength == 1 && packet[0] == UPLOAD_PHOTO_COMMAND) {
-        uint8_t command = packet[0];
-        Serial.printf("Photo upload command received: %u\n",command);
-        xQueueOverwrite(uploadPhotoCommandQueue, &command);
-        return;
-    }
-
-    /*
-     * -----------------------------
-     * PHOTO PROTOCOL PACKET
-     * -----------------------------
-     * Anything else is going to be a photo packet
-     */
-
-    if (packetLength > PHOTO_PACKET_MAX_SIZE) {
-        Serial.printf("Photo packet too large: %u bytes\n", static_cast<unsigned int>(packetLength));
-        return;
-    }
-
-    PhotoPacketMessage message{};
-
-    message.length = static_cast<uint16_t>(packetLength);
-
-    memcpy(message.data, packet, packetLength);
-
-    if (xQueueSend(photoPacketQueue, &message, 0) != pdTRUE) {
-        Serial.println("Photo packet queue full. Packet dropped.");
-        return;
-    }
-
-    Serial.printf("Queued photo packet: type=0x%02X, length=%u\n", message.data[0], message.length);
-}
 
 bool tryBluetoothInit() {
     Serial.println("Starting BLE...");
