@@ -7,15 +7,15 @@
 #include <cstring>
 #include <string>
 
-#include "FreeRTOS.h"
-#include "queue.h"
-#include "task.h"
+#include <freertos/FreeRTOS.h>
+#include <freertos/queue.h>
+#include <freertos/task.h>
 
 #include "smartCupConfig.h"
 #include "drivers.h"
 #include "bluetoothCallbacks.h"
 #include "photoProtocol.h"
-
+#include "displayController.h"
 
 /*
  * ============================================================
@@ -221,5 +221,5 @@ void PhotoCallbacks::onWrite(BLECharacteristic* characteristic) {
         return;
     }
 
-    Serial.printf("Queued photo packet: type=0x%02X, length=%u\n", message.data[0], message.length);
+    // Serial.printf("Queued photo packet: type=0x%02X, length=%u\n", message.data[0], message.length);
 }

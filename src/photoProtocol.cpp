@@ -1,6 +1,15 @@
 #include "photoProtocol.h"
-
+#include "displayController.h"
+#include <atomic>
 #include <cstring>
+#include <cstdlib>
+
+// Keep the image buffer reserved until drawing finishes.
+static std::atomic<bool> photoPending{false};
+
+bool isPhotoBufferReserved() {
+    return photoPending.load();
+}
 
 namespace {
 
@@ -10,12 +19,23 @@ constexpr uint8_t PACKET_DATA  = 0x02;
 constexpr uint8_t PACKET_END   = 0x03;
 constexpr uint8_t PACKET_ABORT = 0x04;
 
-constexpr size_t IMAGE_BUFFER_CAPACITY =
-    240U * 320U * 2U;
+// Info for image buffer management and transfer state.
+constexpr uint16_t MAX_IMAGE_WIDTH = 240;
+constexpr uint16_t MAX_IMAGE_HEIGHT = 320;
 
-// Alignment is needed because the byte buffer is later treated
-// as a uint16_t RGB565 buffer.
-alignas(4) uint8_t imageBuffer[IMAGE_BUFFER_CAPACITY];
+uint16_t* rowBuffer = nullptr;
+
+uint16_t bufferedPixels = 0;
+uint16_t nextRow = 0;
+
+void releaseRowBuffer() {
+    free(rowBuffer);
+    rowBuffer = nullptr;
+
+    bufferedPixels = 0;
+    nextRow = 0;
+}
+
 
 bool transferActive = false;
 
@@ -29,8 +49,10 @@ uint16_t expectedSequence = 0;
 uint16_t receivedChunks = 0;
 
 
+
 void abortImageTransfer() {
     transferActive = false;
+    releaseRowBuffer();
 
     imageWidth = 0;
     imageHeight = 0;
@@ -45,9 +67,14 @@ void abortImageTransfer() {
 }
 
 
-void handleStartPacket(const uint8_t* packet, size_t length) {
-    if (length != 9) {
-        Serial.printf("Invalid START packet length: %u\n", static_cast<unsigned>(length));
+void handleStartPacket(const uint8_t* packet, size_t length, Adafruit_ST7789& display) {
+    if (transferActive) {
+        Serial.println("START rejected: transfer already active");
+        return;
+    }
+
+    if (packet == nullptr || length != 9) {
+        Serial.printf("Invalid START packet: length=%u\n", static_cast<unsigned>(length));
         return;
     }
 
@@ -61,20 +88,27 @@ void handleStartPacket(const uint8_t* packet, size_t length) {
         (static_cast<uint32_t>(packet[7]) << 8) |
         static_cast<uint32_t>(packet[8]);
 
-    const uint32_t calculatedBytes = static_cast<uint32_t>(width) * static_cast<uint32_t>(height) * 2U;
-
-    if (width == 0 || height == 0) {
-        Serial.println("Image dimensions cannot be zero");
+    if (width == 0 || height == 0 || width > MAX_IMAGE_WIDTH || height > MAX_IMAGE_HEIGHT || width > display.width() || height > display.height()) {
+        Serial.printf("Invalid image dimensions: %u x %u\n", width, height);
         return;
     }
+
+    const uint32_t calculatedBytes = static_cast<uint32_t>(width) * height * 2U;
 
     if (totalBytes != calculatedBytes) {
         Serial.printf("Image size mismatch: header=%lu, calculated=%lu\n", static_cast<unsigned long>(totalBytes), static_cast<unsigned long>(calculatedBytes));
         return;
     }
 
-    if (totalBytes > IMAGE_BUFFER_CAPACITY) {
-        Serial.printf("Image is too large: %lu-byte image, %u-byte buffer\n", static_cast<unsigned long>(totalBytes), static_cast<unsigned>(IMAGE_BUFFER_CAPACITY));
+    // Clear any leftover allocation before starting a new transfer.
+    releaseRowBuffer();
+
+    const size_t rowBytes = static_cast<size_t>(width) * sizeof(uint16_t);
+
+    rowBuffer = static_cast<uint16_t*>(malloc(rowBytes));
+
+    if (rowBuffer == nullptr) {
+        Serial.printf("Failed to allocate %u-byte row buffer\n", static_cast<unsigned>(rowBytes));
         return;
     }
 
@@ -86,26 +120,36 @@ void handleStartPacket(const uint8_t* packet, size_t length) {
     receivedChunks = 0;
     expectedSequence = 0;
 
+    bufferedPixels = 0;
+    nextRow = 0;
+
+    currentDisplayMode = DisplayMode::Photo;
     transferActive = true;
 
-    Serial.printf("START: %u x %u, expecting %lu bytes\n", imageWidth, imageHeight, static_cast<unsigned long>(expectedBytes));
+    Serial.printf("START: %u x %u, expecting %lu bytes, allocated %u-byte row buffer\n", imageWidth, imageHeight, static_cast<unsigned long>(expectedBytes), static_cast<unsigned>(rowBytes));
 }
 
-
-void handleDataPacket(const uint8_t* packet, size_t length) {
+void handleDataPacket(const uint8_t* packet, size_t length, Adafruit_ST7789& display) {
     if (!transferActive) {
         Serial.println("DATA received without active transfer");
         return;
     }
 
-    // Three header bytes plus at least one complete RGB565 pixel.
-    if (length < 5) {
-        Serial.println("DATA packet is too short");
+    if (rowBuffer == nullptr) {
+        Serial.println("DATA received without allocated row buffer");
         abortImageTransfer();
         return;
     }
 
-    const uint16_t sequence = (static_cast<uint16_t>(packet[1]) << 8) | packet[2];
+    // Three header bytes plus at least one complete RGB565 pixel.
+    if (packet == nullptr || length < 5) {
+        Serial.println("DATA packet is null or too short");
+        abortImageTransfer();
+        return;
+    }
+
+    const uint16_t sequence =
+        (static_cast<uint16_t>(packet[1]) << 8) | packet[2];
 
     if (sequence != expectedSequence) {
         Serial.printf("Sequence error: expected %u, received %u\n", expectedSequence, sequence);
@@ -113,57 +157,68 @@ void handleDataPacket(const uint8_t* packet, size_t length) {
         return;
     }
 
-    // Skip:
-    // packet[0] = packet type
-    // packet[1] = sequence high
-    // packet[2] = sequence low
     const uint8_t* pixelData = packet + 3;
     const size_t pixelByteCount = length - 3;
 
-    if ((pixelByteCount % 2) != 0) {
+    if ((pixelByteCount % 2U) != 0) {
         Serial.println("DATA contains an incomplete RGB565 pixel");
-
         abortImageTransfer();
         return;
     }
 
-    if (receivedBytes + pixelByteCount > expectedBytes) {
+    if (
+        receivedBytes > expectedBytes ||
+        pixelByteCount > expectedBytes - receivedBytes
+    ) {
         Serial.println("DATA would exceed expected image size");
         abortImageTransfer();
         return;
     }
 
-    if (receivedBytes + pixelByteCount > IMAGE_BUFFER_CAPACITY) {
-        Serial.println( "DATA would overflow image buffer");
+    for (size_t i = 0; i < pixelByteCount; i += 2) {
+        // Check bounds before accessing the row buffer.
+        if (
+            imageWidth == 0 ||
+            bufferedPixels >= imageWidth ||
+            nextRow >= imageHeight
+        ) {
+            Serial.println("Invalid row buffer position");
+            abortImageTransfer();
+            return;
+        }
 
-        abortImageTransfer();
-        return;
+        // Convert the phone's high-byte-first RGB565 data
+        // into a native uint16_t pixel value.
+        rowBuffer[bufferedPixels++] =
+            (static_cast<uint16_t>(pixelData[i]) << 8) |
+            static_cast<uint16_t>(pixelData[i + 1]);
+
+        if (bufferedPixels == imageWidth) {
+            display.startWrite();
+            display.setAddrWindow(0, nextRow, imageWidth, 1);
+            display.writePixels(rowBuffer, imageWidth, true, false);
+            display.endWrite();
+
+            // The blocking write finished; reuse the buffer.
+            bufferedPixels = 0;
+            nextRow++;
+        }
     }
 
-    memcpy(imageBuffer + receivedBytes, pixelData, pixelByteCount);
-
-    receivedBytes += pixelByteCount;
+    receivedBytes += static_cast<uint32_t>(pixelByteCount);
     receivedChunks++;
     expectedSequence++;
-
-    Serial.printf(
-        "DATA #%u: copied %u pixel bytes. Total: %lu/%lu\n",
-        sequence,
-        static_cast<unsigned>(pixelByteCount),
-        static_cast<unsigned long>(receivedBytes),
-        static_cast<unsigned long>(expectedBytes)
-    );
 }
 
 
-void handleEndPacket(const uint8_t* packet, size_t length, Adafruit_ST7789& display) {
+void handleEndPacket(const uint8_t* packet, size_t length) {
     if (!transferActive) {
         Serial.println("END received without active transfer");
         return;
     }
 
-    if (length != 3) {
-        Serial.printf("Invalid END packet length: %u\n", static_cast<unsigned>(length));
+    if (packet == nullptr || length != 3) {
+        Serial.printf("Invalid END packet: length=%u\n", static_cast<unsigned>(length));
         abortImageTransfer();
         return;
     }
@@ -174,12 +229,13 @@ void handleEndPacket(const uint8_t* packet, size_t length, Adafruit_ST7789& disp
 
     const bool chunkCountCorrect = receivedChunks == reportedChunks;
 
-    if (!byteCountCorrect || !chunkCountCorrect) {
+    const bool rowsCorrect = nextRow == imageHeight && bufferedPixels == 0;
+
+    if (rowBuffer == nullptr || !byteCountCorrect || !chunkCountCorrect || !rowsCorrect) {
         Serial.println("Incomplete image transfer");
-
         Serial.printf("Bytes: received %lu, expected %lu\n", static_cast<unsigned long>(receivedBytes), static_cast<unsigned long>(expectedBytes));
-
         Serial.printf("Chunks: received %u, expected %u\n", receivedChunks, reportedChunks);
+        Serial.printf("Rows: drawn %u, expected %u, buffered pixels %u\n", nextRow, imageHeight, bufferedPixels);
 
         abortImageTransfer();
         return;
@@ -187,30 +243,14 @@ void handleEndPacket(const uint8_t* packet, size_t length, Adafruit_ST7789& disp
 
     transferActive = false;
 
-    Serial.println("Image transfer completed successfully");
+    // All blocking row writes have finished.
+    releaseRowBuffer();
 
-    Serial.println("Writing image to ST7789V...");
-
-    const uint32_t pixelCount = static_cast<uint32_t>(imageWidth) * static_cast<uint32_t>(imageHeight);
-
-    uint16_t* rgb565Pixels = reinterpret_cast<uint16_t*>(imageBuffer);
-
-    display.startWrite();
-
-    display.setAddrWindow(0, 0, imageWidth, imageHeight);
-
-    display.writePixels(
-        rgb565Pixels,
-        pixelCount,
-        true,  // Block until transfer completes
-        true   // Source pixels use big-endian byte order
-    );
-
-    display.endWrite();
-    Serial.println("Image displayed successfully");
+    Serial.println("Image transfer completed successfully; image displayed and row buffer freed");
 }
 
 } // namespace
+
 
 
 void handleImagePacket(const uint8_t* packet, size_t packetLength, Adafruit_ST7789& display) {
@@ -221,22 +261,26 @@ void handleImagePacket(const uint8_t* packet, size_t packetLength, Adafruit_ST77
 
     const uint8_t packetType = packet[0];
 
-    Serial.printf("Packet type: 0x%02X, packet length: %u\n", packetType, static_cast<unsigned>(packetLength));
+    // Serial.printf("Packet type: 0x%02X, packet length: %u\n", packetType, static_cast<unsigned>(packetLength));
 
     switch (packetType) {
         case PACKET_START:
-            handleStartPacket(packet, packetLength);
+            handleStartPacket(packet, packetLength, display);
             break;
 
         case PACKET_DATA:
-            handleDataPacket(packet, packetLength);
+            handleDataPacket(packet, packetLength, display);
             break;
 
         case PACKET_END:
-            handleEndPacket(packet, packetLength, display);
+            handleEndPacket(packet, packetLength);
             break;
 
         case PACKET_ABORT:
+            if (photoPending.load()) {
+                Serial.println("ABORT received: photo is awaiting display or being drawn");
+                break;
+            } 
             abortImageTransfer();
             break;
 

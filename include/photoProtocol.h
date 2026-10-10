@@ -6,6 +6,8 @@
 
 #define PHOTO_PACKET_MAX_SIZE 244
 
+bool isPhotoBufferReserved();
+
 struct PhotoPacketMessage {
     uint16_t length;
     uint8_t data[PHOTO_PACKET_MAX_SIZE];
@@ -30,5 +32,7 @@ void handleImagePacket(
     size_t packetLength,
     Adafruit_ST7789& display
 );
+
+void drawPendingPhoto(Adafruit_ST7789& display);
 
 #endif

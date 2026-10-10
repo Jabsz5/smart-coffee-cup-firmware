@@ -7,8 +7,8 @@
 #include <BLE2902.h>
 #include <BLEDevice.h>
 #include <stdlib.h>
-#include "FreeRTOS.h"
-#include "task.h"
+#include <freertos/FreeRTOS.h>
+#include <freertos/task.h>
 #include <cstring>
 #include <string>
 
@@ -18,12 +18,17 @@
 #include "photoProtocol.h"
 
 
+#include <esp_system.h>
+
 #define MONITOR_SPEED 115200
 #define DEFAULT_DELAY 500
 
 
 void setup() {
  Serial.begin(MONITOR_SPEED);
+
+ Serial.printf("Last reset reason: %d\n", static_cast<int>(esp_reset_reason()));
+
  delay(DEFAULT_DELAY);
  Serial.println("Hello World! Starting ESP32 BLE + OLED test...");
 
@@ -50,14 +55,16 @@ if (temperatureSensorInit() != EXT_CODE_SUCCESS) {
     printError("Temperature sensors failed to initialize!", ERR_CODE_TEMP_SENSOR_INIT_FAILED);
 }
 
-// I'm not sure what this actuallly is... (???)
-plateTemperatureSensorInit();
+if (plateTemperatureSensorInit() != EXT_CODE_SUCCESS) {
+    printError("Plate temperature sensor initialization failed!", ERR_CODE_PLATE_TEMP_SENSOR_INIT_FAILED);
+}
+
 
 if (buzzerGPIOinit() != EXT_CODE_SUCCESS) {
     printError("Buzzer GPIO initialization failed!", ERR_CODE_BUZZER_INIT_FAIL);
 }
 
-// BLE stack is disabled after 5 failed attempts
+
 if (bluetoothinit() != EXT_CODE_SUCCESS) {
     printError("Bluetooth initialization failed!", ERR_CODE_BLUETOOTH_INIT_FAILED);
 }
@@ -193,12 +200,15 @@ if (uploadPhotoTaskResult != pdPASS) {
 
   // TO-DO: Also initialize capacity sensors here
  // Will also need to set a GPIO pin for the heating pad control
+
+Serial.println("SETUP COMPLETE");
+Serial.flush();
+
 }
 
 
-void loop()
-{
-
+void loop(){
+    vTaskDelay(pdMS_TO_TICKS(100));
 }
 /*
 1. OLED display inits

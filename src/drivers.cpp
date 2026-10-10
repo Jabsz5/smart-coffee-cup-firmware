@@ -7,8 +7,8 @@
 #include <BLE2902.h>
 #include <BLEDevice.h>
 #include <stdlib.h>
-#include "FreeRTOS.h"
-#include "task.h"
+#include <freertos/FreeRTOS.h>
+#include <freertos/task.h>
 #include <cstring>
 #include <string>
 #include "smartCupConfig.h"
@@ -18,23 +18,20 @@
 #include "photoProtocol.h"
 #include <cmath>
 #include "bluetoothCallbacks.h"
+#include "displayController.h"
+// Display pins — classic ESP32
+#define TFT_CS    27
+#define TFT_DC    26
+#define TFT_RST   25
+#define TFT_MOSI  23
+#define TFT_SCLK  18
 
-// Display pins
-#define TFT_CS    7
-#define TFT_DC    6
-#define TFT_RST   15
-#define TFT_MOSI  13
-#define TFT_SCLK  12
-
-// Custom SPI bus
-SPIClass displaySPI(FSPI);
+// Changed from FSPI to VSPI for this ESP32 chip model... :p
+SPIClass displaySPI(VSPI);
 
 // ST7789 display
 Adafruit_ST7789 display(&displaySPI, TFT_CS, TFT_DC, TFT_RST);
 
-// Going to make display have multiple modes.
-
-volatile DisplayMode currentDisplayMode = DisplayMode::Initialization;
 
 void drawSensorDisplayLayout() {
     display.fillScreen(ST77XX_BLACK);
@@ -228,7 +225,7 @@ static float plateTempF = NAN;
 static portMUX_TYPE plateTemperatureMux = portMUX_INITIALIZER_UNLOCKED;
 
 
-void plateTemperatureSensorInit() {
+int plateTemperatureSensorInit() {
     pinMode(THERMISTOR_PIN, INPUT);
 
     // ESP32 ADC range: 0–4095.
@@ -238,6 +235,8 @@ void plateTemperatureSensorInit() {
     analogSetPinAttenuation(THERMISTOR_PIN, ADC_11db);
 
     Serial.printf("Plate thermistor initialized on GPIO %u\n", THERMISTOR_PIN);
+
+    return EXT_CODE_SUCCESS;
 }
 
 float readPlateTemperature() {
@@ -342,15 +341,19 @@ void printError(const char* message, uint16_t errorCode) {
 }
 
 // default boot up screen
-int bootupScreen(){
-  displaySettingStartup();
-  constexpr int MESSAGE_LENGTH = 65;
-  size_t bytes = display.println("There should be stuff on the display if you are reading this :p\n");
+int bootupScreen() {
+    displaySettingStartup();
 
-  if (bytes != MESSAGE_LENGTH){
-    return ERR_CODE_FAILED_WRITE_TO_DISPLAY;
-  }
-  return EXT_CODE_SUCCESS;
+    constexpr char message[] = "There should be stuff on the display if you are reading this :p";
+
+    const size_t written = display.println(message);
+    const size_t expected = sizeof(message) - 1U + 2U;
+
+    if (written != expected) {
+        return ERR_CODE_FAILED_WRITE_TO_DISPLAY;
+    }
+
+    return EXT_CODE_SUCCESS;
 }
 
 void displaySettingStartup() {
@@ -372,23 +375,28 @@ void displayMessage(const char* message) {
 int OLEDinit() {
     Serial.println("Starting ST7789...");
 
+    Serial.println("Before displaySPI.begin()");
+    Serial.flush();
+
     displaySPI.begin(TFT_SCLK, -1, TFT_MOSI, TFT_CS);
 
-    // Check whether host=side SPI subsystem initialized correctly.
-    // Not true hardware validation.
+    Serial.println("After displaySPI.begin()");
+
     if (displaySPI.bus() == nullptr) {
         Serial.println("SPI bus initialization failed.");
         return ERR_CODE_SPI_INIT_FAILED;
     }
 
-    if (displaySPI.getClockDivider() == 0) {
-        Serial.println("SPI clock configuration failed.");
-        return ERR_CODE_SPI_INIT_FAILED;
-    }
+    Serial.println("Before display.init()");
+    Serial.flush();
 
     display.init(240, 320);
-    uint8_t rotation = 2;
-    display.setRotation(rotation);
+
+    Serial.println("After display.init()");
+
+    display.setRotation(2);
+
+    Serial.println("ST7789 initialization finished.");
 
     return EXT_CODE_SUCCESS;
 }
@@ -399,9 +407,8 @@ Two different behaviors occuring;
 2. State update while continuously in said state.
 */
 void displayTask(void* parameter) {
-    Serial.println("Display task entered.");
-    constexpr TickType_t DISPLAY_INTERVAL = pdMS_TO_TICKS(100);
 
+    constexpr TickType_t DISPLAY_INTERVAL = pdMS_TO_TICKS(100);
     TickType_t lastWakeTime = xTaskGetTickCount();
 
     DisplayMode previousDisplayMode = currentDisplayMode;
@@ -409,43 +416,38 @@ void displayTask(void* parameter) {
     Serial.printf("Display task started on Core %d\n", xPortGetCoreID());
 
     while (true) {
+        const DisplayMode mode = currentDisplayMode;
 
-        
-        if (currentDisplayMode != previousDisplayMode) {
-
-            switch (currentDisplayMode) {
-
+        if (mode != previousDisplayMode) {
+            switch (mode) {
                 case DisplayMode::Initialization:
-                    /*
-                    Do nothing.
-                    setup() already makes the display init.
-                    No need to rewrite itself.
-                    */
+                    Serial.println("Display mode default is Initialization mode");
                     break;
 
                 case DisplayMode::SensorDashboard:
-                    Serial.println("Switching display to Sensor Dashboard mode\n");
+                    Serial.println("Switching display to Sensor Dashboard mode");
                     drawSensorDisplayLayout();
-                    updateSensorDisplay();
                     break;
 
                 case DisplayMode::Text:
-                    // Draw text screen later
+                    // Draw text screen later.
                     break;
 
                 case DisplayMode::Photo:
-                    // Draw photo screen later
+                    // The upload task draws rows as DATA packets arrive.
+                    Serial.println("Switching display to Photo mode");
                     break;
 
                 case DisplayMode::Drawing:
-                    // Draw drawing screen later
+                    // Draw drawing screen later.
                     break;
             }
-            previousDisplayMode = currentDisplayMode;
+
+            previousDisplayMode = mode;
         }
 
-        // Continuously update dynamic screens
-        if (currentDisplayMode == DisplayMode::SensorDashboard){
+        // Continuously refresh the sensor dashboard.
+        if (mode == DisplayMode::SensorDashboard) {
             updateSensorDisplay();
         }
 
@@ -454,44 +456,27 @@ void displayTask(void* parameter) {
 }
 
 void plateTemperatureTask(void* parameters) {
-    // Initialize the first wake time once.
-    TickType_t lastWakeTime =
-        xTaskGetTickCount();
+    bool tempPlateErrorReported = false;
+    TickType_t lastWakeTime = xTaskGetTickCount();
 
-    Serial.println(
-        "Plate temperature task started"
-    );
+    Serial.println("Plate temperature task started");
 
     while (true) {
-        const float newPlateTempF =
-            readPlateTemperature();
+        const float newPlateTempF = readPlateTemperature();
 
         portENTER_CRITICAL(&plateTemperatureMux);
         plateTempF = newPlateTempF;
         portEXIT_CRITICAL(&plateTemperatureMux);
 
         if (std::isfinite(newPlateTempF)) {
-            Serial.printf(
-                "Plate temperature: %.1f F\n",
-                newPlateTempF
-            );
-        } else {
-            Serial.println(
-                "Plate temperature unavailable"
-            );
+            tempPlateErrorReported = false;
+            Serial.printf("Plate temperature: %.1f F\n", newPlateTempF);
+        } else if (!tempPlateErrorReported) {
+            Serial.println("Plate temperature unavailable");
+            tempPlateErrorReported = true;
         }
 
-        /*
-         * vTaskDelayUntil produces a stable 50 ms period.
-         * A regular vTaskDelay(50) would add execution time
-         * to every interval.
-         */
-        vTaskDelayUntil(
-            &lastWakeTime,
-            pdMS_TO_TICKS(
-                PLATE_UPDATE_INTERVAL_MS
-            )
-        );
+        vTaskDelayUntil(&lastWakeTime, pdMS_TO_TICKS(PLATE_UPDATE_INTERVAL_MS));
     }
 }
 

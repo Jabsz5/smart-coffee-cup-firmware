@@ -10,7 +10,7 @@
 // Heater configuration
 // ============================================================
 
-constexpr int HEATER_PIN = 25;
+constexpr int HEATER_PIN = 32;
 extern bool HEATER_ENABLED;
 // ============================================================
 // OLED configuration
@@ -55,7 +55,7 @@ extern bool alarmArmed;
 // --------------------------------------------------
 // Plate thermistor
 // --------------------------------------------------
-constexpr uint8_t THERMISTOR_PIN = 1;
+constexpr uint8_t THERMISTOR_PIN = 34;
 
 constexpr float SERIES_RESISTOR = 10000.0f;
 constexpr float THERMISTOR_NOMINAL = 10000.0f;
@@ -116,6 +116,7 @@ constexpr int ERR_CODE_PHOTO_TASK_CREATION_FAILED = 16;
 constexpr int ERR_CODE_PHOTO_PACKET_QUEUE_CREATION_FAILED = 17;
 constexpr int ERR_CODE_SPI_INIT_FAILED = 18;
 constexpr int ERR_CODE_FAILED_WRITE_TO_DISPLAY = 19;
+constexpr int ERR_CODE_PLATE_TEMP_SENSOR_INIT_FAILED = 20;
 // ============================================================
 // ESP32 core assignments
 // ============================================================

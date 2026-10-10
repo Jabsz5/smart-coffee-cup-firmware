@@ -13,21 +13,14 @@
 #include <OneWire.h>
 #include <DallasTemperature.h>
 
+#include <atomic>
+#include <stdint.h>
+
 
 
 struct displayMessage_t {
     char text[OLED_TEXT_MAX_LENGTH];
 };
-
-enum class DisplayMode : uint8_t {
-    Initialization,
-    SensorDashboard,
-    Text,
-    Photo,
-    Drawing
-};
-
-extern volatile DisplayMode currentDisplayMode;
 
 // Driver objects defined in drivers.cpp
 extern Adafruit_ST7789 display;
@@ -71,7 +64,7 @@ int buzzerGPIOinit();
 void soundAlarm();
 
 // temperature plates driver functions
-void plateTemperatureSensorInit();
+int plateTemperatureSensorInit();
 
 float readPlateTemperature();
 float getPlateTemperatureF();
