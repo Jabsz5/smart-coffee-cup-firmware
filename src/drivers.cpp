@@ -628,6 +628,7 @@ void uploadPhotoTask(void* parameter) {
             continue;
         }
 
+        
         if (command != UPLOAD_PHOTO_COMMAND) {
             continue;
         }
@@ -665,7 +666,7 @@ void uploadPhotoTask(void* parameter) {
             if (xQueueReceive(photoPacketQueue, &packetMessage, portMAX_DELAY ) != pdTRUE) {
                 continue;
             }
-            Serial.printf("Processing photo packet: type=0x%02X, length=%u\n", packetMessage.data[0], packetMessage.length);
+            //Serial.printf("Processing photo packet: type=0x%02X, length=%u\n", packetMessage.data[0], packetMessage.length);
             handleImagePacket(packetMessage.data, packetMessage.length, display);
         }
     }
@@ -677,7 +678,7 @@ bool tryBluetoothInit() {
     displayMessage("Starting BLE...");
 
     BLEDevice::init("ESP32-BLE-Test");
-    BLEDevice::setMTU(247);
+    BLEDevice::setMTU(517);
 
     BLEServer* server = BLEDevice::createServer();
 
@@ -701,8 +702,9 @@ bool tryBluetoothInit() {
     capacityCharacteristic = smartCupService->createCharacteristic(CAPACITY_CHAR_UUID, BLECharacteristic::PROPERTY_READ | BLECharacteristic::PROPERTY_NOTIFY | BLECharacteristic::PROPERTY_WRITE);
 
     photoCharacteristic = smartCupService->createCharacteristic(PHOTO_UPLOAD_UUID, BLECharacteristic::PROPERTY_WRITE | BLECharacteristic::PROPERTY_NOTIFY);
+    displayControlCharacteristic = smartCupService->createCharacteristic(DISPLAY_CONTROL_UUID, BLECharacteristic::PROPERTY_WRITE);
 
-    if (displayCharacteristic == nullptr || heatingPadCharacteristic == nullptr || temperatureCharacteristic == nullptr || capacityCharacteristic == nullptr || photoCharacteristic == nullptr) {
+    if (displayCharacteristic == nullptr || heatingPadCharacteristic == nullptr || temperatureCharacteristic == nullptr || capacityCharacteristic == nullptr || photoCharacteristic == nullptr || displayControlCharacteristic == nullptr) {
         Serial.println("Failed to create one or more BLE characteristics.");
         return false;
     }
@@ -716,6 +718,7 @@ bool tryBluetoothInit() {
     temperatureCharacteristic->setCallbacks((BLECharacteristicCallbacks*)&temperatureCallbackHandler);
     capacityCharacteristic->setCallbacks((BLECharacteristicCallbacks*)&capacityCallbackHandler);
     photoCharacteristic->setCallbacks((BLECharacteristicCallbacks*)&photoCallbackHandler);
+    displayControlCharacteristic->setCallbacks(&displayControlCallbackHandler);
 
     smartCupService->start();
 
@@ -766,6 +769,7 @@ int bluetoothinit() {
     temperatureCharacteristic = nullptr;
     capacityCharacteristic = nullptr;
     photoCharacteristic = nullptr;
-
+    displayControlCharacteristic = nullptr;
+    
     return ERR_CODE_BLUETOOTH_INIT_FAILED;
 }

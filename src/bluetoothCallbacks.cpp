@@ -28,7 +28,7 @@ DisplayCallbacks displayCallbacks;
 TemperatureCallbacks temperatureCallbackHandler;
 CapacityCallbacks capacityCallbackHandler;
 PhotoCallbacks photoCallbackHandler;
-
+DisplayControlCallbacks displayControlCallbackHandler;
 
 /*
  * ============================================================
@@ -223,3 +223,28 @@ void PhotoCallbacks::onWrite(BLECharacteristic* characteristic) {
 
     // Serial.printf("Queued photo packet: type=0x%02X, length=%u\n", message.data[0], message.length);
 }
+
+
+
+// Works! Next to need to ensure atomic control of display mode changes. 
+    void DisplayControlCallbacks::onWrite(BLECharacteristic* characteristic){
+        const std::string value = characteristic->getValue();
+
+        if (value.size() != 1) {
+            Serial.println("Display control command must be one byte");
+            return;
+        }
+
+        const uint8_t command = static_cast<uint8_t>(value[0]);
+
+        switch (command) {
+            case VIEW_SENSOR_DASHBOARD_COMMAND:
+                currentDisplayMode.store(DisplayMode::SensorDashboard);
+                Serial.println("Sensor Dashboard mode requested");
+                break;
+
+            default:
+                Serial.printf("Unknown display control command: %u\n", command);
+                break;
+        }
+    };

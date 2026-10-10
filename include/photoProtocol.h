@@ -4,7 +4,7 @@
 #include <Arduino.h>
 #include <Adafruit_ST7789.h>
 
-#define PHOTO_PACKET_MAX_SIZE 244
+#define PHOTO_PACKET_MAX_SIZE 517
 
 bool isPhotoBufferReserved();
 

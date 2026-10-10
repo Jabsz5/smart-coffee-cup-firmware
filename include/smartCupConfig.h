@@ -91,6 +91,9 @@ constexpr const char CAPACITY_CHAR_UUID[] =
 constexpr const char PHOTO_UPLOAD_UUID[] = 
     "abcd1234-5678-90ab-cdef-1234567890af";
 
+constexpr const char DISPLAY_CONTROL_UUID[] =
+    "abcd1234-5678-90ab-cdef-1234567890b0";
+
 // ============================================================
 // Status codes
 // ============================================================
@@ -132,6 +135,7 @@ constexpr uint8_t HEATING_PAD_OFF = 0;
 constexpr uint8_t HEATING_PAD_ON = 1;
 constexpr uint8_t CHECK_TEMPERATURE_COMMAND = 5;
 constexpr uint8_t CHECK_CAPACITY_COMMAND = 6;
+constexpr uint8_t VIEW_SENSOR_DASHBOARD_COMMAND = 42;
 
 
 // ============================================================
@@ -149,6 +153,7 @@ extern BLECharacteristic* displayCharacteristic;
 extern BLECharacteristic* heatingPadCharacteristic;
 extern BLECharacteristic* temperatureCharacteristic;
 extern BLECharacteristic* capacityCharacteristic;
+extern BLECharacteristic* displayControlCharacteristic;
 
 // ============================================================
 // BLE callback handlers

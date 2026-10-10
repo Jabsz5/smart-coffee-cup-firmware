@@ -10,6 +10,7 @@ BLECharacteristic* heatingPadCharacteristic = nullptr;
 BLECharacteristic* temperatureCharacteristic = nullptr;
 BLECharacteristic* capacityCharacteristic = nullptr;
 BLECharacteristic* photoCharacteristic = nullptr;
+BLECharacteristic* displayControlCharacteristic = nullptr;
 
 QueueHandle_t displayQueue = nullptr;
 QueueHandle_t temperatureCommandQueue = nullptr;
