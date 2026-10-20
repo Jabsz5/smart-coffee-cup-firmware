@@ -24,6 +24,12 @@ public:
     void onWrite(BLECharacteristic* characteristic) override;
 };
 
+class PlateTemperatureCallbacks : public BLECharacteristicCallbacks {
+public:
+    void onWrite(BLECharacteristic* characteristic) override;
+};
+
+
 class CapacityCallbacks : public BLECharacteristicCallbacks {
 public:
     void onWrite(BLECharacteristic* characteristic) override;
@@ -41,5 +47,6 @@ extern MyServerCallbacks serverCallbacks;
 extern DisplayCallbacks displayCallbacks;
 extern DisplayControlCallbacks displayControlCallbackHandler;
 extern TemperatureCallbacks temperatureCallbackHandler;
+extern PlateTemperatureCallbacks plateTemperatureCallbackHandler;
 extern CapacityCallbacks capacityCallbackHandler;
 extern PhotoCallbacks photoCallbackHandler;

@@ -16,7 +16,7 @@
 #include "smartCupConfig.h"
 #include "drivers.h"
 #include "photoProtocol.h"
-
+#include "smartcoffeecupTasks.h"
 
 #include <esp_system.h>
 
@@ -59,11 +59,13 @@ if (plateTemperatureSensorInit() != EXT_CODE_SUCCESS) {
     printError("Plate temperature sensor initialization failed!", ERR_CODE_PLATE_TEMP_SENSOR_INIT_FAILED);
 }
 
+if (loadcellInit() != EXT_CODE_SUCCESS) {
+    printError("Load cell initialization failed!", ERR_CODE_LOAD_CELL_INIT_FAILED);
+}
 
 if (buzzerGPIOinit() != EXT_CODE_SUCCESS) {
     printError("Buzzer GPIO initialization failed!", ERR_CODE_BUZZER_INIT_FAIL);
 }
-
 
 if (bluetoothinit() != EXT_CODE_SUCCESS) {
     printError("Bluetooth initialization failed!", ERR_CODE_BLUETOOTH_INIT_FAILED);
@@ -85,6 +87,12 @@ temperatureCommandQueue = xQueueCreate(1, sizeof(uint8_t));
 
 if (temperatureCommandQueue == nullptr) {
     printError("Failed to create temperature command queue.", ERR_CODE_TEMPERATURE_COMMAND_QUEUE_CREATION_FAILED);
+}
+
+plateTemperatureCommandQueue = xQueueCreate(1, sizeof(uint8_t));
+
+if (plateTemperatureCommandQueue == nullptr) {
+    printError("Failed to create plate temperature command queue.", ERR_CODE_PLATE_TEMPERATURE_COMMAND_QUEUE_CREATION_FAILED);
 }
 
 
@@ -124,19 +132,49 @@ if (displayTaskResult != pdPASS) {
 }
 
 
-BaseType_t TemperaturetaskResult = xTaskCreatePinnedToCore(
-    temperatureTask,
-    "Temperature Task",
-    16384,
+BaseType_t temperatureSensorTaskResult = xTaskCreatePinnedToCore(
+    temperatureSensorTask,
+    "Temperature Sensor",
+    4096,
     nullptr,
     1,
     nullptr,
-    CORE_0
+    0
 );
 
-if (TemperaturetaskResult != pdPASS) {
-    printError("Failed to create temperature task.", ERR_CODE_TEMPERATURE_TASK_CREATION_FAILED);
+if (temperatureSensorTaskResult != pdPASS) {
+    printError("Failed to create temperature sensor task.", ERR_CODE_TEMPERATURE__SENSOR_TASK_CREATION_FAILED);
 }
+
+ BaseType_t temperatureCommandTaskResult = xTaskCreatePinnedToCore(
+    temperatureCommandTask,
+    "Temperature Command",
+    4096,
+    nullptr,
+    1,
+    nullptr,
+    0
+);
+
+if (temperatureCommandTaskResult != pdPASS) {
+    printError("Failed to create temperature command task.", ERR_CODE_TEMPERATURE__COMMAND_TASK_CREATION_FAILED);
+}
+
+BaseType_t loadCellTaskResult = xTaskCreatePinnedToCore(
+    loadCellSensorTask,
+    "Load Cell Sensor",
+    4096,
+    nullptr,
+    1,
+    nullptr,
+    0
+);
+
+if (loadCellTaskResult != pdPASS) {
+    printError("Failed to create temperature command task.", ERR_CODE_LOAD_CELL_TASK_CREATION_FAILED);
+}
+
+
 
 BaseType_t plateTemperatureTaskResult =
     xTaskCreatePinnedToCore(
@@ -153,6 +191,19 @@ if (plateTemperatureTaskResult != pdPASS) {
     printError("Failed to create plate temperature task.", ERR_CODE_TEMPERATURE_TASK_CREATION_FAILED);
 }
 
+BaseType_t plateTemperatureCommandTaskResult = xTaskCreatePinnedToCore(
+    plateTemperatureCommandTask,
+    "PlateTempCommand",
+    4096,
+    nullptr,
+    1,
+    nullptr,
+    0
+    );
+
+if (plateTemperatureCommandTaskResult != pdPASS) {
+    printError("Failed to create plate temperature command task.", ERR_CODE_TEMPERATURE_TASK_COMMAND_CREATION_FAILED);
+}
 
 BaseType_t CapacityTaskResult = xTaskCreatePinnedToCore(
     capacityTask,

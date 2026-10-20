@@ -26,6 +26,7 @@
 MyServerCallbacks serverCallbacks;
 DisplayCallbacks displayCallbacks;
 TemperatureCallbacks temperatureCallbackHandler;
+PlateTemperatureCallbacks plateTemperatureCallbackHandler;
 CapacityCallbacks capacityCallbackHandler;
 PhotoCallbacks photoCallbackHandler;
 DisplayControlCallbacks displayControlCallbackHandler;
@@ -129,6 +130,53 @@ void TemperatureCallbacks::onWrite(BLECharacteristic* characteristic) {
     }
 }
 
+/*
+ * ============================================================
+ * TEMPERATURE CALLBACK
+ * ============================================================
+ */
+
+/*
+ * ============================================================
+ * PLATE TEMPERATURE CALLBACK
+ * ============================================================
+ */
+
+void PlateTemperatureCallbacks::onWrite(BLECharacteristic* characteristic) {
+    if (characteristic->getUUID().toString() != PLATE_TEMPERATURE_CHAR_UUID) {
+        return;
+    }
+
+    std::string temperatureValue = characteristic->getValue();
+
+    if (temperatureValue.empty()) {
+        Serial.println("Plate temperature command was empty.");
+        return;
+    }
+
+    const uint8_t command = static_cast<uint8_t>(
+        static_cast<unsigned char>(temperatureValue[0])
+    );
+
+    Serial.printf("Plate temperature command received: %u\n", command);
+
+    if (command != CHECK_PLATE_TEMPERATURE_COMMAND) {
+        Serial.println("ERROR: Invalid plate temperature command.");
+        return;
+    }
+
+    if (plateTemperatureCommandQueue == nullptr) {
+        Serial.println("ERROR: Plate temperature command queue not initialized.");
+        return;
+    }
+
+    if (xQueueOverwrite(plateTemperatureCommandQueue, &command) != pdPASS) {
+        Serial.println("ERROR: Failed to queue plate temperature command.");
+        return;
+    }
+
+    Serial.println("Plate temperature command queued successfully.");
+}
 
 /*
  * ============================================================
@@ -148,17 +196,26 @@ void CapacityCallbacks::onWrite(BLECharacteristic* characteristic) {
         return;
     }
 
-    uint8_t command = static_cast<uint8_t>(static_cast<unsigned char>(capacityValue[0]));
+    const uint8_t command = static_cast<uint8_t>(capacityValue[0]);
 
-    Serial.printf("Capacity command received: %u\r\n", command);
+    Serial.printf("Capacity command received: %u\n", command);
 
-    if (command == CHECK_CAPACITY_COMMAND) {
-        xQueueOverwrite(capacityCommandQueue, &command);
+    if (command != CHECK_CAPACITY_COMMAND) {
+        Serial.println("ERROR: Invalid capacity command.");
+        return;
     }
-    else {
-        Serial.println("Failed to receive valid capacity command.");
 
+    if (capacityCommandQueue == nullptr) {
+        Serial.println("ERROR: Capacity command queue not initialized.");
+        return;
     }
+
+    if (xQueueOverwrite(capacityCommandQueue, &command) != pdPASS) {
+        Serial.println("ERROR: Failed to queue capacity command.");
+        return;
+    }
+
+    Serial.println("Capacity command queued successfully.");
 }
 
 

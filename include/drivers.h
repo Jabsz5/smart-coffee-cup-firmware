@@ -1,6 +1,7 @@
 #pragma once
 
 #include <Arduino.h>
+#include <SPI.h>
 #include <Adafruit_ST7789.h>
 
 #include <BLEDevice.h>
@@ -9,71 +10,148 @@
 #include "freertos/queue.h"
 #include "smartCupConfig.h"
 
-// CODE FOR TEMPERATURE SENSORS
+// Temperature sensor libraries
 #include <OneWire.h>
 #include <DallasTemperature.h>
 
 #include <atomic>
 #include <stdint.h>
 
+/*
+ * ==========================================
+ * DISPLAY CONFIGURATION — CLASSIC ESP32
+ * ==========================================
+ */
 
+#define TFT_CS    14
+#define TFT_DC    5
+#define TFT_RST   4
+#define TFT_MOSI  13
+#define TFT_SCLK  26
+
+
+/*
+ * ==========================================
+ * DISPLAY DRIVER OBJECTS
+ * ==========================================
+ */
+
+// SPI instance defined in drivers.cpp
+extern SPIClass displaySPI;
+
+// ST7789 display defined in drivers.cpp
+extern Adafruit_ST7789 display;
+
+/*
+ * ==========================================
+ * TEMPERATURE SENSOR DRIVER OBJECTS
+ * ==========================================
+ */
+
+extern OneWire activeOneWire;
+extern OneWire ambientOneWire;
+
+extern DallasTemperature activeSensor;
+extern DallasTemperature ambientSensor;
+
+
+/*
+ * ==========================================
+ * FREERTOS QUEUES
+ * Defined in projectConfig.cpp
+ * ==========================================
+ */
 
 struct displayMessage_t {
     char text[OLED_TEXT_MAX_LENGTH];
 };
 
-// Driver objects defined in drivers.cpp
-extern Adafruit_ST7789 display;
-
-extern OneWire activeOneWire;
-extern OneWire ambientOneWire;
-extern DallasTemperature activeSensor;
-extern DallasTemperature ambientSensor;
-
-// FreeRTOS queues defined in projectConfig.cpp
 extern QueueHandle_t displayQueue;
 extern QueueHandle_t temperatureCommandQueue;
+extern QueueHandle_t plateTemperatureCommandQueue;
 extern QueueHandle_t capacityCommandQueue;
 
-// BLE characteristics defined in projectConfig.cpp
+/*
+ * ==========================================
+ * BLE CHARACTERISTICS
+ * Defined in projectConfig.cpp
+ * ==========================================
+ */
+
 extern BLECharacteristic* oledTextCharacteristic;
 extern BLECharacteristic* heatingPadCharacteristic;
 extern BLECharacteristic* temperatureCharacteristic;
 extern BLECharacteristic* capacityCharacteristic;
 extern BLECharacteristic* photoCharacteristic;
 
-// Shared BLE and temperature state
+/*
+ * ==========================================
+ * SHARED BLE AND TEMPERATURE STATE
+ * ==========================================
+ */
+
 extern bool deviceConnected;
 extern uint8_t temperatureControlValue;
 
-// OLED driver functions
+/*
+ * ==========================================
+ * DISPLAY DRIVER FUNCTIONS
+ * ==========================================
+ */
+
 int OLEDinit();
 int bootupScreen();
+
 void displaySettingStartup();
 void displayMessage(const char* message);
 void printError(const char* errorMessage, uint16_t errorCode);
 
-// Bluetooth driver function
+/*
+ * ==========================================
+ * BLUETOOTH DRIVER FUNCTIONS
+ * ==========================================
+ */
+
 int bluetoothinit();
 
-// DS18B20 driver function
+/*
+ * ==========================================
+ * TEMPERATURE SENSOR DRIVER FUNCTIONS
+ * ==========================================
+ */
+
 int temperatureSensorInit();
 
-// buzzer driver function
-int buzzerGPIOinit();
-void soundAlarm();
-
-// temperature plates driver functions
 int plateTemperatureSensorInit();
 
 float readPlateTemperature();
 float getPlateTemperatureF();
 
-void plateTemperatureTask(void* parameters);
+/*
+ * ==========================================
+ * BUZZER DRIVER FUNCTIONS
+ * ==========================================
+ */
 
-// FreeRTOS task functions
+int buzzerGPIOinit();
+void soundAlarm();
+
+/*
+ * ==========================================
+ * LOAD CELL DRIVER
+ * ==========================================
+ */
+int loadcellInit();
+
+/*
+ * ==========================================
+ * FREERTOS TASK FUNCTIONS
+ * ==========================================
+ */
+
 void displayTask(void* parameter);
 void temperatureTask(void* parameter);
+void plateTemperatureTask(void* parameters);
 void capacityTask(void* parameter);
 void alarmTask(void* parameter);
 void uploadPhotoTask(void* parameter);

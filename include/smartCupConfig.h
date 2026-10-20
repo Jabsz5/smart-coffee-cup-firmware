@@ -2,6 +2,7 @@
 
 #include <Arduino.h>
 #include <BLEServer.h>
+#include <HX711.h>
 
 #include "freertos/FreeRTOS.h"
 #include "freertos/queue.h"
@@ -10,7 +11,7 @@
 // Heater configuration
 // ============================================================
 
-constexpr int HEATER_PIN = 32;
+constexpr int HEATER_PIN = 18;
 extern bool HEATER_ENABLED;
 // ============================================================
 // OLED configuration
@@ -29,11 +30,10 @@ constexpr size_t OLED_TEXT_MAX_LENGTH = 128;
 // Temperature sensor configuration
 // ============================================================
 // DS18B20 data pins
-constexpr uint8_t ACTIVE_SENSOR_PIN  = 18;
-constexpr uint8_t AMBIENT_SENSOR_PIN = 17;
+constexpr uint8_t ACTIVE_SENSOR_PIN  = 4;
+constexpr uint8_t AMBIENT_SENSOR_PIN = 21;
 
-constexpr unsigned long READ_INTERVAL_MS = 2000;
-constexpr unsigned long CONVERSION_TIME_MS = 750;
+constexpr unsigned long READ_INTERVAL_MS = 1000;
 
 // ============================================================
 // buzzer configuration
@@ -55,6 +55,12 @@ extern bool alarmArmed;
 // --------------------------------------------------
 // Plate thermistor
 // --------------------------------------------------
+
+// This should eventually be recalibrated against a trusted thermometer.
+constexpr float PLATE_TEMP_CORRECTION_F = 138.5f;
+
+constexpr uint32_t PLATE_UPDATE_INTERVAL_MS = 100;
+
 constexpr uint8_t THERMISTOR_PIN = 34;
 
 constexpr float SERIES_RESISTOR = 10000.0f;
@@ -63,11 +69,21 @@ constexpr float TEMP_NOMINAL_C = 25.0f;
 constexpr float THERMISTOR_BETA = 3950.0f;
 constexpr float ADC_MAX_VALUE = 4095.0f;
 
-// Carried over from the test program.
-// This should eventually be recalibrated against a trusted thermometer.
-constexpr float PLATE_TEMP_CORRECTION_F = 138.5f;
 
-constexpr uint32_t PLATE_UPDATE_INTERVAL_MS = 50;
+/*
+ * ==========================================
+ * LOAD CELL CONFIGURATION 
+ * ==========================================
+ */
+#define HX711_DOUT 35
+#define HX711_SCK  32
+extern HX711 scale;
+constexpr uint32_t LOAD_CELL_UPDATE_INTERVAL_MS = 200;
+
+
+
+
+
 
 // ============================================================
 // BLE UUIDs
@@ -93,6 +109,9 @@ constexpr const char PHOTO_UPLOAD_UUID[] =
 
 constexpr const char DISPLAY_CONTROL_UUID[] =
     "abcd1234-5678-90ab-cdef-1234567890b0";
+
+constexpr const char PLATE_TEMPERATURE_CHAR_UUID[] =
+    "abcd1234-5678-90ab-cdef-1234567890b1";
 
 // ============================================================
 // Status codes
@@ -120,6 +139,12 @@ constexpr int ERR_CODE_PHOTO_PACKET_QUEUE_CREATION_FAILED = 17;
 constexpr int ERR_CODE_SPI_INIT_FAILED = 18;
 constexpr int ERR_CODE_FAILED_WRITE_TO_DISPLAY = 19;
 constexpr int ERR_CODE_PLATE_TEMP_SENSOR_INIT_FAILED = 20;
+constexpr int ERR_CODE_LOAD_CELL_INIT_FAILED = 21;
+constexpr int ERR_CODE_TEMPERATURE__SENSOR_TASK_CREATION_FAILED = 22;
+constexpr int ERR_CODE_TEMPERATURE__COMMAND_TASK_CREATION_FAILED = 23;
+constexpr int ERR_CODE_LOAD_CELL_TASK_CREATION_FAILED = 24;
+constexpr int ERR_CODE_PLATE_TEMPERATURE_COMMAND_QUEUE_CREATION_FAILED = 25;
+constexpr int ERR_CODE_TEMPERATURE_TASK_COMMAND_CREATION_FAILED = 26;
 // ============================================================
 // ESP32 core assignments
 // ============================================================
@@ -135,6 +160,7 @@ constexpr uint8_t HEATING_PAD_OFF = 0;
 constexpr uint8_t HEATING_PAD_ON = 1;
 constexpr uint8_t CHECK_TEMPERATURE_COMMAND = 5;
 constexpr uint8_t CHECK_CAPACITY_COMMAND = 6;
+constexpr uint8_t CHECK_PLATE_TEMPERATURE_COMMAND = 7;
 constexpr uint8_t VIEW_SENSOR_DASHBOARD_COMMAND = 42;
 
 
@@ -152,6 +178,7 @@ extern uint8_t capacityControlValue;
 extern BLECharacteristic* displayCharacteristic;
 extern BLECharacteristic* heatingPadCharacteristic;
 extern BLECharacteristic* temperatureCharacteristic;
+extern BLECharacteristic* plateTemperatureCharacteristic;
 extern BLECharacteristic* capacityCharacteristic;
 extern BLECharacteristic* displayControlCharacteristic;
 
